@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "jspdf": "2.5.1",
+    "jspdf-autotable": "3.8.0",
     "lucide-react": "0.453.0",
     "next": "14.2.4",
     "react": "18.3.1",
@@ -27,11 +28,5 @@
     "postcss": "8.4.40",
     "tailwindcss": "3.4.10",
     "typescript": "5.4.5"
-  }{
-  "dependencies": {
-    "jspdf": "^2.5.1",
-    "jspdf-autotable": "^3.8.0"
   }
-}
-
 }
