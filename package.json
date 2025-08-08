@@ -3,34 +3,25 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3000",
+    "dev": "next dev",
     "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
+    "start": "next start"
+  },
+  "engines": {
+    "node": "20.x"
   },
   "dependencies": {
+    "jspdf": "^2.5.1",
+    "lucide-react": "^0.378.0",
     "next": "14.2.4",
-    "react": "18.3.1",
-    "react-dom": "18.3.1",
-    "lucide-react": "0.453.0",
-    "recharts": "2.12.6",
-    "jspdf": "2.5.1"
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "recharts": "^2.12.7"
   },
-  "devDependencies": {
-    "typescript": "5.5.4",
-    "@types/react": "18.3.3",
-    "@types/node": "20.12.12",
-    "autoprefixer": "10.4.19",
-    "postcss": "8.4.39",
-    "tailwindcss": "3.4.10",
-    "eslint": "8.57.0",
-    "eslint-config-next": "14.2.4"
-  }
-{
   "devDependencies": {
     "autoprefixer": "^10.4.18",
     "postcss": "^8.4.35",
-    "tailwindcss": "^3.4.7"
+    "tailwindcss": "^3.4.7",
+    "typescript": "^5.4.5"
   }
 }
-
