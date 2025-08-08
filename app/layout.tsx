@@ -1,18 +1,12 @@
 export const metadata = {
   title: "Monthly Audit",
-  description: "Mamas Dining Group – Audit Dashboard",
+  description: "Simple audit app (no splash, no shadcn)"
 };
 
-import "./globals.css";
-
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="min-h-screen bg-[#0E0E10] text-zinc-100 antialiased">
+      <body>
         {children}
       </body>
     </html>
