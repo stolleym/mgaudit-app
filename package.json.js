@@ -12,8 +12,8 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "jspdf": "2.5.1",
-    "jspdf-autotable": "3.8.0",
+    "jspdf": "^2.5.1",
+    "jspdf-autotable": "^3.8.0",
     "lucide-react": "0.453.0",
     "next": "14.2.4",
     "react": "18.3.1",
