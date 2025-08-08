@@ -1,3 +1,7 @@
+"use client";
+import Image from "next/image";
+import { useState, useEffect } from "react";
+
 // --- types ---
 type Checkpoint = {
   category: string;
@@ -8,8 +12,6 @@ type Checkpoint = {
   suggested: string;
   photo?: boolean; // optional
 };
-
-type Rating = "Pass" | "Fail" | "N/A";
 
 // --- data ---
 const CHECKPOINTS: ReadonlyArray<Checkpoint> = [
@@ -32,28 +34,46 @@ const CHECKPOINTS: ReadonlyArray<Checkpoint> = [
   { category: "Maintenance", checkpoint: "Critical equipment serviced", target: "No overdue", owner: "Venue Manager", defaultDue: 3, suggested: "Book tech; tag out if needed; close work order." },
 ];
 
-// --- helper functions ---
-const requirePhoto = (checkpoint: string, rating: Rating) => {
-  const meta = CHECKPOINTS.find(c => c.checkpoint === checkpoint) as Checkpoint | undefined;
-  if (meta?.photo) return true;
-  if (rating !== "Pass" && rating !== "N/A") return true;
-  return false;
-};
-
-// --- placeholder UI ---
+// --- main component ---
 export default function Page() {
+  const [showSplash, setShowSplash] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setShowSplash(false), 3000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const requirePhoto = (checkpoint: string, rating: string) => {
+    const meta = CHECKPOINTS.find(c => c.checkpoint === checkpoint);
+    if (meta?.photo) return true;
+    if (rating !== "Pass" && rating !== "N/A") return true;
+    return false;
+  };
+
+  if (showSplash) {
+    return (
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        height: "100vh",
+        backgroundColor: "#fff"
+      }}>
+        <Image src="/mamas-logo.png" alt="Mamas Logo" width={300} height={300} priority />
+      </div>
+    );
+  }
+
   return (
-    <main style={{ padding: "2rem" }}>
-      <h1>MG Audit App</h1>
-      <p>Checkpoint list with photo requirement logic is loaded.</p>
-      <ul>
-        {CHECKPOINTS.map(cp => (
-          <li key={cp.checkpoint}>
-            <strong>{cp.checkpoint}</strong>
-            {cp.photo && " 📷"}
-          </li>
-        ))}
-      </ul>
-    </main>
+    <div>
+      {/* Your app’s main content here */}
+      <h1>Audit Dashboard</h1>
+      {/* Example usage of requirePhoto */}
+      {CHECKPOINTS.map(c => (
+        <div key={c.checkpoint}>
+          <strong>{c.checkpoint}</strong> – Requires Photo? {requirePhoto(c.checkpoint, "Pass") ? "Yes" : "No"}
+        </div>
+      ))}
+    </div>
   );
 }
