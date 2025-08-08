@@ -478,25 +478,154 @@ function FullAudit({
     return null;
   };
 
-  const buildPDF = (audit: Audit, actions: ActionItem[], embedPhotos = true) => {
-    const doc = new jsPDF();
-    doc.setFontSize(16); doc.text("Monthly Audit Report", 10, 10);
-    doc.setFontSize(12);
-    doc.text(`Venue: ${audit.venue}`, 10, 20);
-    doc.text(`Month: ${audit.month}`, 10, 26);
-    doc.text(`Score: ${audit.score}%`, 10, 32);
-    let y = 42;
-    audit.rows.forEach((r, i) => {
-      doc.text(`${i + 1}. [${r.category}] ${r.checkpoint} - ${r.rating}`, 10, y); y += 6;
-      if (r.notes) { doc.text(`Notes: ${r.notes}`, 14, y); y += 6; }
-      if (embedPhotos && r.photoDataUrl) {
-        try { doc.addImage(r.photoDataUrl, 'JPEG', 14, y, 40, 30); y += 34; } catch {}
+  // REPLACE your existing const buildPDF = (...) => { ... } with this:
+const buildPDF = (audit: Audit, actions: ActionItem[], embedPhotos = true): jsPDF => {
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const marginX = 40;
+  let y = 54;
+
+  // ----- Header -----
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(18);
+  doc.text("Monthly Audit Report", marginX, y);
+  y += 20;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+  doc.text(`Venue: ${audit.venue}`, marginX, y); y += 16;
+  doc.text(`Month: ${audit.month}`, marginX, y); y += 16;
+  doc.text(`Score: ${audit.score}%`, marginX, y); y += 22;
+
+  // Quick counts
+  const counts = audit.rows.reduce((acc, r) => {
+    acc[r.rating] = ((acc as any)[r.rating] || 0) + 1;
+    return acc;
+  }, {} as Record<Rating, number>);
+  const quick = `Pass: ${counts["Pass"] || 0} • Minor: ${counts["Minor"] || 0} • Major: ${counts["Major"] || 0} • Critical: ${counts["Critical"] || 0} • N/A: ${counts["N/A"] || 0}`;
+  doc.setFontSize(10);
+  doc.text(quick, marginX, y);
+  y += 18;
+
+  // ----- Audit Summary Table -----
+  const summaryBody = audit.rows.map((r, i) => [
+    String(i + 1),
+    r.category,
+    r.checkpoint,
+    r.rating,
+    r.notes || "-",
+  ]);
+
+  (autoTable as any)(doc, {
+    startY: y,
+    head: [["#", "Category", "Checkpoint", "Rating", "Notes"]],
+    body: summaryBody,
+    styles: { fontSize: 9, cellPadding: 6, overflow: "linebreak" },
+    headStyles: { fillColor: [20, 20, 20] },
+    columnStyles: {
+      0: { cellWidth: 24 },
+      1: { cellWidth: 120 },
+      2: { cellWidth: 230 },
+      3: { cellWidth: 70 },
+      4: { cellWidth: "auto" },
+    },
+    margin: { left: marginX, right: marginX },
+    didDrawPage: (data: any) => {
+      const pageCount = doc.internal.getNumberOfPages();
+      const str = `Page ${data.pageNumber} of ${pageCount}`;
+      doc.setFontSize(9);
+      doc.setTextColor(150);
+      doc.text(
+        str,
+        pageWidth - marginX,
+        doc.internal.pageSize.getHeight() - 16,
+        { align: "right" }
+      );
+    },
+  });
+
+  y = (doc as any).lastAutoTable.finalY + 24;
+
+  // ----- Action Plan -----
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.text("Action Plan", marginX, y);
+  y += 12;
+
+  const actionsBody =
+    actions.length > 0
+      ? actions.map((a, i) => [
+          String(i + 1),
+          a.category,
+          a.checkpoint,
+          a.rating,
+          `Owner: ${a.owner}\nDue: ${a.due}`,
+        ])
+      : [["-", "-", "No actions raised", "-", "-"]];
+
+  (autoTable as any)(doc, {
+    startY: y,
+    head: [["#", "Category", "Checkpoint", "Rating", "Owner / Due"]],
+    body: actionsBody,
+    styles: { fontSize: 9, cellPadding: 6, overflow: "linebreak" },
+    headStyles: { fillColor: [20, 20, 20] },
+    columnStyles: {
+      0: { cellWidth: 24 },
+      1: { cellWidth: 120 },
+      2: { cellWidth: 240 },
+      3: { cellWidth: 70 },
+      4: { cellWidth: "auto" },
+    },
+    margin: { left: marginX, right: marginX },
+  });
+
+  // ----- Evidence Photos -----
+  if (embedPhotos) {
+    const photos = audit.rows
+      .map((r, i) => ({ idx: i + 1, row: r }))
+      .filter((x) => !!x.row.photoDataUrl);
+
+    if (photos.length) {
+      doc.addPage();
+      y = 54;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+      doc.text("Evidence Photos", marginX, y);
+      y += 16;
+
+      const colW = (pageWidth - marginX * 2 - 16) / 2; // two columns
+      const maxH = 180;
+      let col = 0;
+
+      for (const p of photos) {
+        try {
+          const x = marginX + col * (colW + 16);
+          const yCap = y;
+
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(10);
+          doc.text(`${p.idx}. ${p.row.category} — ${p.row.checkpoint}`, x, yCap);
+
+          doc.addImage(p.row.photoDataUrl, "JPEG", x, yCap + 8, colW, maxH, undefined, "FAST");
+
+          col = (col + 1) % 2;
+          if (col === 0) {
+            y += maxH + 48;
+            if (y > doc.internal.pageSize.getHeight() - 100) {
+              doc.addPage();
+              y = 54;
+            }
+          }
+        } catch {
+          // skip bad images silently
+        }
       }
-    });
-    y += 4; doc.text(`Action Plan:`, 10, y); y += 6;
-    actions.forEach((a, i) => { doc.text(`${i + 1}. ${a.checkpoint} - ${a.rating} - Owner: ${a.owner} Due: ${a.due}`, 10, y); y += 6; });
-    return doc;
-  };
+    }
+  }
+
+  return doc;
+};
+
 
   const finalise = () => {
     const missing = validatePhotos();
