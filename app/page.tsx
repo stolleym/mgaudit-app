@@ -1,5 +1,3 @@
-// @ts-nocheck
-
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -17,7 +15,7 @@ import {
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import jsPDF from "jspdf";
 
-// ---------- Domain data ----------
+// ---------- Domain data & types ----------
 const VENUES = ["Suzie Q", "Windsor Wine Room"] as const;
 type Venue = typeof VENUES[number];
 type Rating = "Pass" | "Minor" | "Major" | "Critical" | "N/A";
@@ -38,6 +36,28 @@ type AuditRow = {
   rating: Rating;
   notes: string;
   photoDataUrl: string;
+};
+
+type Audit = {
+  id: string;
+  venue: Venue;
+  month: string; // YYYY-MM
+  score: number;
+  rows: AuditRow[];
+};
+
+type ActionStatus = "Open" | "In Progress" | "Done";
+type ActionItem = {
+  id: string;
+  venue: Venue;
+  month: string;
+  category: string;
+  checkpoint: string;
+  rating: Rating;
+  owner: string;
+  due: string; // YYYY-MM-DD
+  status: ActionStatus;
+  description: string;
 };
 
 const severityWeight: Record<Rating, number> = { Pass: 0, Minor: 1, Major: 3, Critical: 5, "N/A": 0 };
@@ -67,14 +87,23 @@ const CHECKPOINTS: ReadonlyArray<Checkpoint> = [
 const DRAFT_KEY = "auditDraft";
 const HISTORY_KEY = "auditHistory";
 const DC_KEY = "deepCleanTasks";
-const loadDraft = () => { try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || "null"); } catch { return null; } };
+
+const loadDraft = (): { venue: Venue; month: string; rows: AuditRow[] } | null => {
+  try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || "null"); } catch { return null; }
+};
 const saveDraft = (v: unknown) => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(v)); } catch {} };
 const clearDraft = () => { try { localStorage.removeItem(DRAFT_KEY); } catch {} };
-const getHistory = () => { try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); } catch { return []; } };
-const setHistory = (arr: unknown[]) => { try { localStorage.setItem(HISTORY_KEY, JSON.stringify(arr)); } catch {} };
-const pushHistory = (a: unknown) => { const h = getHistory(); h.push(a); setHistory(h); };
-const loadDC = () => { try { return JSON.parse(localStorage.getItem(DC_KEY) || "[]"); } catch { return []; } };
-const saveDC = (v: unknown[]) => { try { localStorage.setItem(DC_KEY, JSON.stringify(v)); } catch {} };
+
+const getHistory = (): Audit[] => {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); } catch { return []; }
+};
+const setHistory = (arr: Audit[]) => { try { localStorage.setItem(HISTORY_KEY, JSON.stringify(arr)); } catch {} };
+const pushHistory = (a: Audit) => { const h = getHistory(); h.push(a); setHistory(h); };
+
+const loadDC = (): DCItem[] => {
+  try { return JSON.parse(localStorage.getItem(DC_KEY) || "[]"); } catch { return []; }
+};
+const saveDC = (v: DCItem[]) => { try { localStorage.setItem(DC_KEY, JSON.stringify(v)); } catch {} };
 
 // ---------- Utilities ----------
 function daysFromNow(days: number) { const d = new Date(); d.setDate(d.getDate() + Math.max(0, days)); return d.toISOString().slice(0,10); }
@@ -182,30 +211,32 @@ function Dashboard({ venue, onStartNew, onHistory, onDeep }: { venue: Venue | "A
 }
 
 // ---------- Full Audit ----------
-function FullAudit({ onFinalise, onCancel }: { onFinalise: (actions: any[], audit: any, pdfUrl: string) => void; onCancel: () => void }) {
+function FullAudit({ onFinalise, onCancel }: { onFinalise: (actions: ActionItem[], audit: Audit, pdfUrl: string) => void; onCancel: () => void }) {
   const draft = loadDraft();
   const [venue, setVenue] = useState<Venue>(draft?.venue || "Suzie Q");
-  const [month, setMonth] = useState(draft?.month || new Date().toISOString().slice(0,7));
-  const initial: AuditRow[] = (draft?.rows as AuditRow[] | undefined) || CHECKPOINTS.map((cp) => ({
-    category: cp.category,
-    checkpoint: cp.checkpoint,
-    rating: "Pass",
-    notes: "",
-    photoDataUrl: "",
-  }));
+  const [month, setMonth] = useState<string>(draft?.month || new Date().toISOString().slice(0,7));
+  const initial: AuditRow[] =
+    (draft?.rows as AuditRow[] | undefined) ||
+    CHECKPOINTS.map((cp) => ({
+      category: cp.category,
+      checkpoint: cp.checkpoint,
+      rating: "Pass",
+      notes: "",
+      photoDataUrl: "",
+    }));
   const [rows, setRows] = useState<AuditRow[]>(initial);
   useEffect(() => { saveDraft({ venue, month, rows }); }, [venue, month, rows]);
 
   const inputFileRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const requirePhoto = (checkpoint: string, rating: Rating) => {
-    const meta = CHECKPOINTS.find(c => c.checkpoint === checkpoint) as Checkpoint | undefined;
+    const meta = CHECKPOINTS.find(c => c.checkpoint === checkpoint);
     if (meta?.photo) return true;
     if (rating !== "Pass" && rating !== "N/A") return true;
     return false;
   };
 
-  const grouped = useMemo(() => {
+  const grouped = useMemo<[string, AuditRow[]][]>(() => {
     const m = new Map<string, AuditRow[]>();
     rows.forEach((r: AuditRow) => {
       if (!m.has(r.category)) m.set(r.category, []);
@@ -242,7 +273,7 @@ function FullAudit({ onFinalise, onCancel }: { onFinalise: (actions: any[], audi
     return null;
   };
 
-  const buildPDF = (audit: any, actions: any[], embedPhotos = true) => {
+  const buildPDF = (audit: Audit, actions: ActionItem[], embedPhotos = true) => {
     const doc = new jsPDF();
     doc.setFontSize(16); doc.text("Monthly Audit Report", 10, 10);
     doc.setFontSize(12);
@@ -250,7 +281,7 @@ function FullAudit({ onFinalise, onCancel }: { onFinalise: (actions: any[], audi
     doc.text(`Month: ${audit.month}`, 10, 26);
     doc.text(`Score: ${audit.score}%`, 10, 32);
     let y = 42;
-    audit.rows.forEach((r: AuditRow, i: number) => {
+    audit.rows.forEach((r, i) => {
       doc.text(`${i + 1}. [${r.category}] ${r.checkpoint} - ${r.rating}`, 10, y); y += 6;
       if (r.notes) { doc.text(`Notes: ${r.notes}`, 14, y); y += 6; }
       if (embedPhotos && r.photoDataUrl) {
@@ -258,22 +289,26 @@ function FullAudit({ onFinalise, onCancel }: { onFinalise: (actions: any[], audi
       }
     });
     y += 4; doc.text(`Action Plan:`, 10, y); y += 6;
-    actions.forEach((a: any, i: number) => { doc.text(`${i + 1}. ${a.checkpoint} - ${a.rating} - Owner: ${a.owner} Due: ${a.due}`, 10, y); y += 6; });
+    actions.forEach((a, i) => { doc.text(`${i + 1}. ${a.checkpoint} - ${a.rating} - Owner: ${a.owner} Due: ${a.due}`, 10, y); y += 6; });
     return doc;
   };
 
   const finalise = () => {
     const missing = validatePhotos();
     if (missing) { alert(`Photo required for: ${missing}`); return; }
-    let score = 100; const actions: any[] = [];
+    let score = 100; const actions: ActionItem[] = [];
     rows.forEach((r) => {
       const sev = severityWeight[r.rating];
       score = Math.max(0, score - sev * 5);
       if (r.rating !== "Pass" && r.rating !== "N/A") {
-        const meta = CHECKPOINTS.find(c => c.checkpoint === r.checkpoint) as Checkpoint | undefined;
+        const meta = CHECKPOINTS.find(c => c.checkpoint === r.checkpoint);
         actions.push({
-          id: Math.random().toString(36).slice(2), venue, month,
-          category: r.category, checkpoint: r.checkpoint, rating: r.rating,
+          id: Math.random().toString(36).slice(2),
+          venue,
+          month,
+          category: r.category,
+          checkpoint: r.checkpoint,
+          rating: r.rating,
           owner: meta?.owner ?? "Head Chef",
           due: daysFromNow((meta?.defaultDue ?? 3) - (sev >= 3 ? 2 : 0)),
           status: "Open",
@@ -281,7 +316,7 @@ function FullAudit({ onFinalise, onCancel }: { onFinalise: (actions: any[], audi
         });
       }
     });
-    const audit = { id: Math.random().toString(36).slice(2), venue, month, score, rows };
+    const audit: Audit = { id: Math.random().toString(36).slice(2), venue, month, score, rows };
 
     const doc = buildPDF(audit, actions, true);
     const pdfUrl = doc.output("bloburl");
@@ -396,7 +431,7 @@ function FullAudit({ onFinalise, onCancel }: { onFinalise: (actions: any[], audi
 }
 
 // ---------- Actions table ----------
-function ActionsTable({ actions, update }: { actions: any[]; update: (id: string, patch: any) => void }) {
+function ActionsTable({ actions, update }: { actions: ActionItem[]; update: (id: string, patch: Partial<ActionItem>) => void }) {
   return (
     <div className="space-y-2">
       {actions.length === 0 && <div className="text-zinc-400 text-sm">No open actions. Nice.</div>}
@@ -418,14 +453,33 @@ function ActionsTable({ actions, update }: { actions: any[]; update: (id: string
 
 // ---------- History ----------
 function AuditHistory() {
-  const [items, setItems] = useState<any[]>(getHistory());
-  const exportJSON = () => { const blob = new Blob([JSON.stringify(items, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'auditHistory.json'; a.click(); URL.revokeObjectURL(url); };
+  const [items, setItems] = useState<Audit[]>(getHistory());
+  const exportJSON = () => {
+    const blob = new Blob([JSON.stringify(items, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'auditHistory.json'; a.click(); URL.revokeObjectURL(url);
+  };
   const importJSON = async () => {
     const input = document.createElement('input'); input.type = 'file'; input.accept = 'application/json';
-    input.onchange = () => { const f = input.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = () => { try { const arr = JSON.parse(String(r.result)); if (Array.isArray(arr)) { setHistory(arr); setItems(arr); } } catch {} }; r.readAsText(f); };
+    input.onchange = () => {
+      const f = input.files?.[0]; if (!f) return;
+      const r = new FileReader();
+      r.onload = () => { try {
+        const arr = JSON.parse(String(r.result)) as Audit[];
+        if (Array.isArray(arr)) { setHistory(arr); setItems(arr); }
+      } catch {} };
+      r.readAsText(f);
+    };
     input.click();
   };
-  const exportPDF = (audit: any) => { const doc = new jsPDF(); doc.setFontSize(16); doc.text("Audit Report", 10, 10); doc.setFontSize(12); doc.text(`Venue: ${audit.venue}`, 10, 20); doc.text(`Month: ${audit.month}`, 10, 26); doc.text(`Score: ${audit.score}%`, 10, 32); doc.save(`audit_${audit.venue}_${audit.month}.pdf`); };
+  const exportPDF = (audit: Audit) => {
+    const doc = new jsPDF();
+    doc.setFontSize(16); doc.text("Audit Report", 10, 10);
+    doc.setFontSize(12); doc.text(`Venue: ${audit.venue}`, 10, 20);
+    doc.text(`Month: ${audit.month}`, 10, 26);
+    doc.text(`Score: ${audit.score}%`, 10, 32);
+    doc.save(`audit_${audit.venue}_${audit.month}.pdf`);
+  };
   return (
     <div className="space-y-3">
       <div className="flex gap-2">
@@ -450,8 +504,8 @@ function AuditHistory() {
 type DCItem = { id: string; title: string; due: string; done: boolean };
 function DeepCleanSchedule() {
   const [items, setItems] = useState<DCItem[]>(loadDC());
-  const [title, setTitle] = useState("");
-  const [due, setDue] = useState(new Date().toISOString().slice(0,10));
+  const [title, setTitle] = useState<string>("");
+  const [due, setDue] = useState<string>(new Date().toISOString().slice(0,10));
   useEffect(() => { saveDC(items); }, [items]);
 
   const add = () => { if (!title || !due) return;
@@ -522,7 +576,7 @@ export default function Page() {
   type Route = "splash" | "dashboard" | "full" | "actions" | "history" | "deepclean" | "complete";
   const [route, setRoute] = useState<Route>("splash");
   const [venue, setVenue] = useState<Venue | "All">("All");
-  const [actions, setActions] = useState<any[]>([
+  const [actions, setActions] = useState<ActionItem[]>([
     { id: "a1", venue: "Suzie Q", month: "2025-06", category: "Food Safety & Hygiene", checkpoint: "Fridge ≤ 5 °C / Freezer ≤ −15 °C", rating: "Major", owner: "Sous Chef", due: daysFromNow(1), status: "Open", description: "Verify temps; calibrate probes; discard non-compliant stock; log corrective action." },
   ]);
   const [pdfUrl, setPdfUrl] = useState<string>("");
@@ -534,9 +588,10 @@ export default function Page() {
     return ()=>clearTimeout(t);
   }, [route]);
 
-  const updateAction = (id: string, patch: any) => setActions(a => a.map(x => x.id === id ? { ...x, ...patch } : x));
+  const updateAction = (id: string, patch: Partial<ActionItem>) =>
+    setActions(a => a.map(x => x.id === id ? { ...x, ...patch } : x));
 
-  const onFinalise = (newActions: any[], _audit: any, pdfUrlFromAudit: string) => {
+  const onFinalise = (newActions: ActionItem[], _audit: Audit, pdfUrlFromAudit: string) => {
     setActions(a => [...newActions, ...a]);
     setPdfUrl(pdfUrlFromAudit);
     setRoute("complete");
