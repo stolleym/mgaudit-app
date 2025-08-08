@@ -1,10 +1,5 @@
 "use client";
 
-import jsPDF from "jspdf";
-// Load the plugin for side effects (attaches autoTable to jsPDF)
-import "jspdf-autotable";
-
-
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
@@ -13,8 +8,9 @@ import {
   CheckCircle2, AlertTriangle, XCircle, TrendingUp, Factory, History, PlayCircle, FileDown, Upload, Download, Sparkles, X as XIcon
 } from "lucide-react";
 import jsPDF from "jspdf";
-// @ts-ignore - plugin augments jsPDF at runtime
-import autoTable from "jspdf-autotable";
+// NOTE: side-effect import (do NOT import a default symbol)
+import "jspdf-autotable";
+
 
 
 /** ---------------------------------------------------------
