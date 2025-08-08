@@ -26,6 +26,13 @@ function Screen({ children, routeKey }: { children: React.ReactNode; routeKey: s
     </div>
   );
 }
+
+
+
+
+const VENUES = ["Suzie Q", "Windsor Wine Room"] as const;
+type Venue = typeof VENUES[number];
+type Rating = "Pass" | "Minor" | "Major" | "Critical" | "N/A";
 type Checkpoint = {
   category: string;
   checkpoint: string;
@@ -35,11 +42,6 @@ type Checkpoint = {
   suggested: string;
   photo?: boolean; // optional
 };
-
-
-const VENUES = ["Suzie Q", "Windsor Wine Room"] as const;
-type Venue = typeof VENUES[number];
-type Rating = "Pass" | "Minor" | "Major" | "Critical" | "N/A";
 
 const severityWeight: Record<Rating, number> = { Pass: 0, Minor: 1, Major: 3, Critical: 5, "N/A": 0 };
 const band = (score: number) => (score >= 90 ? "green" : score >= 75 ? "amber" : "red");
