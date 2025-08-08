@@ -1,65 +1,23 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { Label } from "@/components/ui/label";
-import {
-  CheckCircle2,
-  AlertTriangle,
-  XCircle,
-  TrendingUp,
-  Factory,
-  History,
-  PlayCircle,
-  FileDown,
-  Upload,
-  Download,
-  Sparkles,
-} from "lucide-react";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { CheckCircle2, AlertTriangle, XCircle, TrendingUp, Factory, History, PlayCircle, FileDown, Upload, Download, Sparkles } from "lucide-react";
 import jsPDF from "jspdf";
 
-// ---------- Tiny CSS transition wrapper ----------
-function Screen({ children, routeKey }: { children: React.ReactNode; routeKey: string }) {
-  return (
-    <div key={routeKey} className="animate-fadeinup">
-      <style>{`
-        @keyframes fadeinup { 0%{opacity:0; transform:translateY(12px)} 100%{opacity:1; transform:translateY(0)} }
-        .animate-fadeinup { animation: fadeinup .35s ease-out }
-      `}</style>
-      {children}
-    </div>
-  );
-}
-
-// ---------- Domain data & types ----------
+/** ---------- Types ---------- */
 const VENUES = ["Suzie Q", "Windsor Wine Room"] as const;
-const CATEGORIES = [
-  "System Compliance",
-  "Food Safety & Hygiene",
-  "Food Quality",
-  "Health & Safety",
-  "Council / Regulatory",
-  "KPIs",
-  "Guest / Staff Feedback",
-  "Maintenance",
-] as const;
-
-type Venue = (typeof VENUES)[number];
+type Venue = typeof VENUES[number];
 type Rating = "Pass" | "Minor" | "Major" | "Critical" | "N/A";
 
 type Checkpoint = {
-  category: (typeof CATEGORIES)[number] | string;
+  category: string;
   checkpoint: string;
   target: string;
   owner: string;
   defaultDue: number;
   suggested: string;
-  photo?: boolean; // optional flag requiring a photo
+  photo?: boolean; // optional
 };
 
 type AuditRow = {
@@ -67,15 +25,7 @@ type AuditRow = {
   checkpoint: string;
   rating: Rating;
   notes: string;
-  photoDataUrl: string; // base64 image if provided
-};
-
-type Audit = {
-  id: string;
-  venue: Venue;
-  month: string; // YYYY-MM
-  score: number;
-  rows: AuditRow[];
+  photoDataUrl: string;
 };
 
 type ActionItem = {
@@ -86,13 +36,30 @@ type ActionItem = {
   checkpoint: string;
   rating: Rating;
   owner: string;
-  due: string; // YYYY-MM-DD
+  due: string;
   status: "Open" | "In Progress" | "Done";
   description: string;
 };
 
+type Audit = {
+  id: string;
+  venue: Venue;
+  month: string;
+  score: number;
+  rows: AuditRow[];
+};
+
+/** ---------- Constants & Utils ---------- */
+const CATEGORIES = [
+  "System Compliance","Food Safety & Hygiene","Food Quality","Health & Safety",
+  "Council / Regulatory","KPIs","Guest / Staff Feedback","Maintenance",
+] as const;
+
 const severityWeight: Record<Rating, number> = { Pass: 0, Minor: 1, Major: 3, Critical: 5, "N/A": 0 };
 const band = (score: number) => (score >= 90 ? "green" : score >= 75 ? "amber" : "red");
+const daysFromNow = (days: number) => { const d = new Date(); d.setDate(d.getDate() + Math.max(0, days)); return d.toISOString().slice(0,10); };
+const badgeClass = (r: Rating) =>
+  ({ Pass: "bg-green-600/20 text-green-400", Minor: "bg-amber-600/20 text-amber-400", Major: "bg-orange-600/20 text-orange-400", Critical: "bg-red-600/20 text-red-400", "N/A": "bg-zinc-700 text-zinc-300" }[r]);
 
 const CHECKPOINTS: ReadonlyArray<Checkpoint> = [
   { category: "System Compliance", checkpoint: "Prep lists fully ticked?", target: "100%", owner: "Sous Chef", defaultDue: 3, suggested: "Audit daily prep sheets; retrain on completion standard; implement AM spot-check." },
@@ -111,113 +78,120 @@ const CHECKPOINTS: ReadonlyArray<Checkpoint> = [
   { category: "KPIs", checkpoint: "Wastage $", target: "↓ week-on-week", owner: "Head Chef", defaultDue: 7, suggested: "Introduce waste board; butcher maps; next-day review." },
   { category: "Guest / Staff Feedback", checkpoint: "Public reviews ≥ 4★", target: "≥ 4.7", owner: "Venue Manager", defaultDue: 7, suggested: "Reply to reviews; table touches; service huddles." },
   { category: "Guest / Staff Feedback", checkpoint: "Staff training hours", target: "≥ 2 h pp / month", owner: "Head Chef", defaultDue: 14, suggested: "Schedule training blocks; capture attendance; sign-off." },
-  { category: "Maintenance", checkpoint: "Critical equipment serviced", target: "No overdue", owner: "Venue Manager", defaultDue: 3, suggested: "Book tech; tag out if needed; close work order." },
-];
+  { category: "Maintenance", checkpoint: "Critical equipment serviced", target: "No overdue", owner: "Venue Manager", defaultDue: 3, suggested: "Book tech; tag out if needed; close work order." }
+] as const;
 
-// ---------- Local storage helpers ----------
+/** Local storage keys */
 const DRAFT_KEY = "auditDraft";
 const HISTORY_KEY = "auditHistory";
 const DC_KEY = "deepCleanTasks";
+
+/** Safe localStorage helpers */
 const loadDraft = () => { try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || "null"); } catch { return null; } };
 const saveDraft = (v: unknown) => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(v)); } catch {} };
 const clearDraft = () => { try { localStorage.removeItem(DRAFT_KEY); } catch {} };
-const getHistory = () => { try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); } catch { return []; } };
-const setHistory = (arr: unknown[]) => { try { localStorage.setItem(HISTORY_KEY, JSON.stringify(arr)); } catch {} };
-const pushHistory = (a: unknown) => { const h = getHistory(); h.push(a); setHistory(h); };
+const getHistory = (): Audit[] => { try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); } catch { return []; } };
+const setHistory = (arr: Audit[]) => { try { localStorage.setItem(HISTORY_KEY, JSON.stringify(arr)); } catch {} };
+const pushHistory = (a: Audit) => { const h = getHistory(); h.push(a); setHistory(h); };
 const loadDC = (): DCItem[] => { try { return JSON.parse(localStorage.getItem(DC_KEY) || "[]"); } catch { return []; } };
 const saveDC = (v: DCItem[]) => { try { localStorage.setItem(DC_KEY, JSON.stringify(v)); } catch {} };
 
-// ---------- Utilities ----------
-function daysFromNow(days: number) { const d = new Date(); d.setDate(d.getDate() + Math.max(0, days)); return d.toISOString().slice(0,10); }
-function badgeClass(r: Rating) {
-  return { Pass: "bg-green-600/20 text-green-400", Minor: "bg-amber-600/20 text-amber-400", Major: "bg-orange-600/20 text-orange-400", Critical: "bg-red-600/20 text-red-400", "N/A": "bg-zinc-700 text-zinc-300" }[r];
-}
-const classField = () => "bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-400";
-
-// ---------- Mock chart data ----------
-const mockAudits: { id: number; venue: Venue; month: string; ratings: { green: number; amber: number; red: number }; score: number }[] = [
-  { id: 1, venue: "Suzie Q", month: "2025-04", ratings: { green: 14, amber: 2, red: 1 }, score: 88 },
-  { id: 2, venue: "Suzie Q", month: "2025-05", ratings: { green: 15, amber: 1, red: 1 }, score: 91 },
-  { id: 3, venue: "Suzie Q", month: "2025-06", ratings: { green: 15, amber: 1, red: 1 }, score: 92 },
-  { id: 4, venue: "Windsor Wine Room", month: "2025-04", ratings: { green: 13, amber: 3, red: 1 }, score: 85 },
-  { id: 5, venue: "Windsor Wine Room", month: "2025-05", ratings: { green: 14, amber: 2, red: 1 }, score: 88 },
-  { id: 6, venue: "Windsor Wine Room", month: "2025-06", ratings: { green: 15, amber: 1, red: 1 }, score: 90 },
+/** ---------- Mock chart data ---------- */
+const mockAudits = [
+  { id: 1, venue: "Suzie Q" as Venue, month: "2025-04", ratings: { green: 14, amber: 2, red: 1 }, score: 88 },
+  { id: 2, venue: "Suzie Q" as Venue, month: "2025-05", ratings: { green: 15, amber: 1, red: 1 }, score: 91 },
+  { id: 3, venue: "Suzie Q" as Venue, month: "2025-06", ratings: { green: 15, amber: 1, red: 1 }, score: 92 },
+  { id: 4, venue: "Windsor Wine Room" as Venue, month: "2025-04", ratings: { green: 13, amber: 3, red: 1 }, score: 85 },
+  { id: 5, venue: "Windsor Wine Room" as Venue, month: "2025-05", ratings: { green: 14, amber: 2, red: 1 }, score: 88 },
+  { id: 6, venue: "Windsor Wine Room" as Venue, month: "2025-06", ratings: { green: 15, amber: 1, red: 1 }, score: 90 }
 ];
 
-// ---------- UI bits ----------
+/** ---------- Small UI helpers ---------- */
 function ScoreBadge({ score }: { score: number }) {
-  const b = band(score); const map = { green: "bg-green-600/20 text-green-400", amber: "bg-amber-600/20 text-amber-400", red: "bg-red-600/20 text-red-400" } as const;
-  return <Badge className={`text-xs ${map[b]} rounded-full`}>{score}%</Badge>;
+  const b = band(score);
+  const map = { green: "bg-green-600/20 text-green-400", amber: "bg-amber-600/20 text-amber-400", red: "bg-red-600/20 text-red-400" } as const;
+  return <span className={`badge ${map[b]}`}>{score}%</span>;
 }
+
 function KPI({ title, value, icon }: { title: string; value: React.ReactNode; icon?: React.ReactNode }) {
   return (
-    <Card className="rounded-2xl shadow-md bg-zinc-900 border-zinc-800">
-      <CardContent className="p-4 flex items-center gap-3">
+    <div className="card">
+      <div className="p-4 flex items-center gap-3">
         <div className="p-2 rounded-xl bg-zinc-800">{icon ?? <TrendingUp size={18} />}</div>
         <div className="flex-1">
           <div className="text-zinc-400 text-xs">{title}</div>
           <div className="text-zinc-100 text-xl font-semibold">{value}</div>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
+/** ---------- Dashboard ---------- */
 function Dashboard({ venue, onStartNew, onHistory, onDeep }: { venue: Venue | "All"; onStartNew: () => void; onHistory: () => void; onDeep: () => void }) {
-  const data = useMemo(() => mockAudits.filter(a => (venue === "All" ? true : a.venue === venue)), [venue]);
+  const data = useMemo(() => mockAudits.filter(a => venue === "All" ? true : a.venue === venue), [venue]);
   const latest = data[data.length - 1];
   const openCritical = 1; const openMajor = 3;
   const lineData = data.map(d => ({ month: d.month, score: d.score }));
+
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap gap-2 justify-between items-center">
         <div className="text-zinc-300 text-sm">Welcome back. Start a fresh audit or review history.</div>
         <div className="flex gap-2">
-          <Button className="rounded-xl" onClick={onStartNew}><PlayCircle size={16} className="mr-2"/>Start New Audit</Button>
-          <Button variant="secondary" className="rounded-xl" onClick={onHistory}><History size={16} className="mr-2"/>Audit History</Button>
-          <Button variant="secondary" className="rounded-xl" onClick={onDeep}><Sparkles size={16} className="mr-2"/>Deep Clean</Button>
+          <button className="btn btn-primary" onClick={onStartNew}><PlayCircle size={16}/>Start New Audit</button>
+          <button className="btn btn-secondary" onClick={onHistory}><History size={16}/>Audit History</button>
+          <button className="btn btn-secondary" onClick={onDeep}><Sparkles size={16}/>Deep Clean</button>
         </div>
       </div>
+
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <KPI title="Latest Audit Score" value={<ScoreBadge score={latest?.score ?? 0} />} />
         <KPI title="Open Critical Actions" value={<div className="flex items-center gap-2"><XCircle size={16} />{openCritical}</div>} />
         <KPI title="Open Major Actions" value={<div className="flex items-center gap-2"><AlertTriangle size={16} />{openMajor}</div>} />
         <KPI title="On-time Close Rate" value="92%" />
       </div>
-      <Card className="rounded-2xl bg-zinc-900 border-zinc-800">
-        <CardContent className="p-4 h-[260px]">
+
+      <div className="card">
+        <div className="p-4 h-[260px]">
           <div className="text-zinc-300 text-sm mb-2">Audit Score Trend</div>
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={lineData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-              <XAxis dataKey="month" stroke="#888" />
-              <YAxis domain={[70, 100]} stroke="#888" />
-              <Tooltip contentStyle={{ background: "#111", border: "1px solid #333" }} />
-              <Line type="monotone" dataKey="score" stroke="#7dd3fc" strokeWidth={2} dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card className="rounded-2xl bg-zinc-900 border-zinc-800">
-          <CardContent className="p-4 h-[260px]">
-            <div className="text-zinc-300 text-sm mb-2">Ratings Distribution (last 3 months)</div>
+          <div style={{ width: "100%", height: "100%" }}>
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data.map(d => ({ month: d.month, Green: d.ratings.green, Amber: d.ratings.amber, Red: d.ratings.red }))}>
+              <LineChart data={lineData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#333" />
                 <XAxis dataKey="month" stroke="#888" />
-                <YAxis stroke="#888" />
-                <Legend />
+                <YAxis domain={[70, 100]} stroke="#888" />
                 <Tooltip contentStyle={{ background: "#111", border: "1px solid #333" }} />
-                <Bar dataKey="Green" fill="#22c55e" />
-                <Bar dataKey="Amber" fill="#f59e0b" />
-                <Bar dataKey="Red" fill="#ef4444" />
-              </BarChart>
+                <Line type="monotone" dataKey="score" stroke="#7dd3fc" strokeWidth={2} dot={false} />
+              </LineChart>
             </ResponsiveContainer>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl bg-zinc-900 border-zinc-800">
-          <CardContent className="p-4">
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="card">
+          <div className="p-4 h-[260px]">
+            <div className="text-zinc-300 text-sm mb-2">Ratings Distribution (last 3 months)</div>
+            <div style={{ width: "100%", height: "100%" }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={data.map(d => ({ month: d.month, Green: d.ratings.green, Amber: d.ratings.amber, Red: d.ratings.red }))}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                  <XAxis dataKey="month" stroke="#888" />
+                  <YAxis stroke="#888" />
+                  <Legend />
+                  <Tooltip contentStyle={{ background: "#111", border: "1px solid #333" }} />
+                  <Bar dataKey="Green" fill="#22c55e" />
+                  <Bar dataKey="Amber" fill="#f59e0b" />
+                  <Bar dataKey="Red" fill="#ef4444" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="p-4">
             <div className="text-zinc-300 text-sm mb-2">Last 6 Audits</div>
             <div className="space-y-2">
               {data.slice(-6).map(a => (
@@ -227,40 +201,28 @@ function Dashboard({ venue, onStartNew, onHistory, onDeep }: { venue: Venue | "A
                 </div>
               ))}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-// ---------- Full Audit ----------
-function FullAudit({
-  onFinalise,
-  onCancel,
-}: {
-  onFinalise: (actions: ActionItem[], audit: Audit, pdfUrl: string | URL) => void;
-  onCancel: () => void;
-}) {
+/** ---------- Full Audit ---------- */
+function FullAudit({ onFinalise, onCancel }: { onFinalise: (actions: ActionItem[], audit: Audit, pdfUrl: string) => void; onCancel: () => void }) {
   const draft = loadDraft();
-  const [venue, setVenue] = useState<Venue>((draft?.venue as Venue) || "Suzie Q");
-  const [month, setMonth] = useState<string>((draft?.month as string) || new Date().toISOString().slice(0, 7));
+  const [venue, setVenue] = useState<Venue>(draft?.venue || "Suzie Q");
+  const [month, setMonth] = useState<string>(draft?.month || new Date().toISOString().slice(0,7));
   const initial: AuditRow[] =
     (draft?.rows as AuditRow[] | undefined) ||
-    CHECKPOINTS.map((cp) => ({
-      category: cp.category,
-      checkpoint: cp.checkpoint,
-      rating: "Pass" as Rating,
-      notes: "",
-      photoDataUrl: "",
-    }));
+    CHECKPOINTS.map((cp) => ({ category: cp.category, checkpoint: cp.checkpoint, rating: "Pass", notes: "", photoDataUrl: "" }));
   const [rows, setRows] = useState<AuditRow[]>(initial);
   useEffect(() => { saveDraft({ venue, month, rows }); }, [venue, month, rows]);
 
   const inputFileRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const requirePhoto = (checkpoint: string, rating: Rating) => {
-    const meta = CHECKPOINTS.find((c) => c.checkpoint === checkpoint);
+    const meta = CHECKPOINTS.find(c => c.checkpoint === checkpoint);
     if (meta?.photo) return true;
     if (rating !== "Pass" && rating !== "N/A") return true;
     return false;
@@ -268,10 +230,7 @@ function FullAudit({
 
   const grouped = useMemo(() => {
     const m = new Map<string, AuditRow[]>();
-    rows.forEach((r: AuditRow) => {
-      if (!m.has(r.category)) m.set(r.category, []);
-      m.get(r.category)!.push(r);
-    });
+    rows.forEach((r) => { if (!m.has(r.category)) m.set(r.category, []); m.get(r.category)!.push(r); });
     return Array.from(m.entries());
   }, [rows]);
 
@@ -287,10 +246,8 @@ function FullAudit({
     });
   }, [grouped]);
 
-  const allComplete = sectionProgress.every((s) => s.done === s.total);
-
-  const setRow = (index: number, patch: Partial<AuditRow>) =>
-    setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  const allComplete = sectionProgress.every(s => s.done === s.total);
+  const setRow = (index: number, patch: Partial<AuditRow>) => setRows(prev => prev.map((r,i) => i===index ? { ...r, ...patch } : r));
 
   const handleFile = (file: File, index: number) => {
     const reader = new FileReader();
@@ -299,58 +256,40 @@ function FullAudit({
   };
 
   const validatePhotos = () => {
-    for (const r of rows) {
-      if (requirePhoto(r.checkpoint, r.rating) && !r.photoDataUrl) return r.checkpoint;
-    }
+    for (const r of rows) { if (requirePhoto(r.checkpoint, r.rating) && !r.photoDataUrl) return r.checkpoint; }
     return null;
   };
 
   const buildPDF = (audit: Audit, actions: ActionItem[], embedPhotos = true) => {
     const doc = new jsPDF();
-    doc.setFontSize(16);
-    doc.text("Monthly Audit Report", 10, 10);
+    doc.setFontSize(16); doc.text("Monthly Audit Report", 10, 10);
     doc.setFontSize(12);
     doc.text(`Venue: ${audit.venue}`, 10, 20);
     doc.text(`Month: ${audit.month}`, 10, 26);
     doc.text(`Score: ${audit.score}%`, 10, 32);
     let y = 42;
     audit.rows.forEach((r, i) => {
-      doc.text(`${i + 1}. [${r.category}] ${r.checkpoint} - ${r.rating}`, 10, y);
-      y += 6;
-      if (r.notes) {
-        doc.text(`Notes: ${r.notes}`, 14, y);
-        y += 6;
-      }
+      doc.text(`${i + 1}. [${r.category}] ${r.checkpoint} - ${r.rating}`, 10, y); y += 6;
+      if (r.notes) { doc.text(`Notes: ${r.notes}`, 14, y); y += 6; }
       if (embedPhotos && r.photoDataUrl) {
-        try {
-          doc.addImage(r.photoDataUrl, "JPEG", 14, y, 40, 30);
-          y += 34;
-        } catch {}
+        try { doc.addImage(r.photoDataUrl, 'JPEG', 14, y, 40, 30); y += 34; } catch {}
       }
     });
-    y += 4;
-    doc.text(`Action Plan:`, 10, y);
-    y += 6;
-    actions.forEach((a, i) => {
-      doc.text(`${i + 1}. ${a.checkpoint} - ${a.rating} - Owner: ${a.owner} Due: ${a.due}`, 10, y);
-      y += 6;
-    });
+    y += 4; doc.text(`Action Plan:`, 10, y); y += 6;
+    actions.forEach((a, i) => { doc.text(`${i + 1}. ${a.checkpoint} - ${a.rating} - Owner: ${a.owner} Due: ${a.due}`, 10, y); y += 6; });
     return doc;
   };
 
   const finalise = () => {
     const missing = validatePhotos();
-    if (missing) {
-      alert(`Photo required for: ${missing}`);
-      return;
-    }
-    let score = 100;
-    const actions: ActionItem[] = [];
-    rows.forEach((r) => {
+    if (missing) { alert(`Photo required for: ${missing}`); return; }
+
+    let score = 100; const actions: ActionItem[] = [];
+    rows.forEach(r => {
       const sev = severityWeight[r.rating];
       score = Math.max(0, score - sev * 5);
       if (r.rating !== "Pass" && r.rating !== "N/A") {
-        const meta = CHECKPOINTS.find((c) => c.checkpoint === r.checkpoint);
+        const meta = CHECKPOINTS.find(c => c.checkpoint === r.checkpoint);
         actions.push({
           id: Math.random().toString(36).slice(2),
           venue,
@@ -358,7 +297,7 @@ function FullAudit({
           category: r.category,
           checkpoint: r.checkpoint,
           rating: r.rating,
-          owner: (meta?.owner as string) ?? "Head Chef",
+          owner: meta?.owner ?? "Head Chef",
           due: daysFromNow((meta?.defaultDue ?? 3) - (severityWeight[r.rating] >= 3 ? 2 : 0)),
           status: "Open",
           description: `${meta?.suggested ?? "Correct and retrain."} ${r.notes ? `Notes: ${r.notes}` : ""}`.trim(),
@@ -367,143 +306,143 @@ function FullAudit({
     });
 
     const audit: Audit = { id: Math.random().toString(36).slice(2), venue, month, score, rows };
+
+    // Avoid URL vs string typing issues: build blob, make object URL string
     const doc = buildPDF(audit, actions, true);
+    const blob = doc.output("blob");
+    const pdfUrl = URL.createObjectURL(blob);
 
-    // jsPDF may return a URL object for "bloburl"; normalize
-    const out = doc.output("bloburl") as string | URL;
-    const pdfHref = typeof out === "string" ? out : out.toString();
-
-    // Clear inputs, persist, bubble up
     Object.values(inputFileRefs.current).forEach((el) => { if (el) el.value = ""; });
-    clearDraft();
-    pushHistory(audit);
-    onFinalise(actions, audit, pdfHref);
+
+    clearDraft(); pushHistory(audit);
+    onFinalise(actions, audit, pdfUrl);
   };
 
   return (
     <div className="grid md:grid-cols-12 gap-4">
       {/* Sidebar */}
       <aside className="md:col-span-3">
-        <Card className="bg-zinc-900 border-zinc-800 rounded-2xl sticky top-4">
-          <CardContent className="p-4 space-y-2">
+        <div className="card sticky top-4">
+          <div className="p-4 space-y-2">
             <div className="text-zinc-300 text-sm mb-1">Progress</div>
-            {sectionProgress.map((s) => (
+            {sectionProgress.map(s => (
               <div key={s.cat} className="flex items-center justify-between text-sm">
                 <span className="text-zinc-200">{s.cat}</span>
-                <span className={`px-2 py-0.5 rounded-full text-xs ${s.done === s.total ? "bg-green-600/20 text-green-400" : "bg-zinc-700 text-zinc-300"}`}>{s.done}/{s.total}</span>
+                <span className={`badge ${s.done===s.total? 'bg-green-600/20 text-green-400':'bg-zinc-700 text-zinc-300'}`}>{s.done}/{s.total}</span>
               </div>
             ))}
-            <div className="pt-2 text-xs text-zinc-400">{allComplete ? "All sections complete." : "Some sections still need photos."}</div>
-          </CardContent>
-        </Card>
+            <div className="pt-2 text-xs text-zinc-400">{allComplete ? 'All sections complete.' : 'Some sections still need photos.'}</div>
+          </div>
+        </div>
       </aside>
 
       {/* Form */}
       <div className="md:col-span-9 space-y-4">
         <div className="grid md:grid-cols-2 gap-4">
           <div>
-            <Label className="text-zinc-300">Venue</Label>
-            <Select value={venue} onValueChange={(v) => setVenue(v as Venue)}>
-              <SelectTrigger className={`rounded-xl ${classField()}`}><SelectValue placeholder="Select venue" /></SelectTrigger>
-              <SelectContent className="bg-zinc-900 text-zinc-100 border-zinc-800">
-                {VENUES.map((v) => (
-                  <SelectItem key={v} value={v}>{v}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="text-zinc-300 text-sm mb-1">Venue</div>
+            <select value={venue} onChange={(e) => setVenue(e.target.value as Venue)} className="select">
+              {VENUES.map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
           </div>
           <div>
-            <Label className="text-zinc-300">Audit Month (YYYY-MM)</Label>
-            <Input value={month} onChange={(e) => setMonth(e.target.value)} className={`rounded-xl ${classField()}`} placeholder="2025-07" />
+            <div className="text-zinc-300 text-sm mb-1">Audit Month (YYYY-MM)</div>
+            <input value={month} onChange={e => setMonth(e.target.value)} className="input" placeholder="2025-07" />
           </div>
         </div>
 
         <div className="space-y-3">
           {Array.from(grouped).map(([cat, items]) => (
-            <Card key={cat} className="bg-zinc-900 border-zinc-800 rounded-2xl">
-              <CardContent className="p-0">
-                <details className="group" open>
-                  <summary className="list-none cursor-pointer select-none px-4 py-3 flex items-center justify-between border-b border-zinc-800">
-                    <span className="text-zinc-100 font-medium">{cat}</span>
-                    <span className="text-zinc-400 text-xs">{items.length} checks</span>
-                  </summary>
-                  <div className="p-4 grid gap-3">
-                    {items.map((row, idx) => {
-                      const index = rows.findIndex((r) => r.checkpoint === row.checkpoint);
-                      return (
-                        <div key={row.checkpoint} className="grid md:grid-cols-5 gap-3 bg-zinc-900">
-                          <div className="col-span-2">
-                            <Label className="text-zinc-300">Checkpoint</Label>
-                            <div className="text-zinc-100 text-sm">{row.checkpoint}</div>
-                            <div className="text-zinc-500 text-xs">Target: {CHECKPOINTS.find((c) => c.checkpoint === row.checkpoint)?.target}</div>
-                          </div>
-                          <div>
-                            <Label className="text-zinc-300">Rating</Label>
-                            <Select value={rows[index].rating} onValueChange={(v) => setRow(index, { rating: v as Rating })}>
-                              <SelectTrigger className={`rounded-xl ${classField()}`}><SelectValue placeholder="Select rating" /></SelectTrigger>
-                              <SelectContent className="bg-zinc-900 text-zinc-100 border-zinc-800">
-                                {["Pass", "Minor", "Major", "Critical", "N/A"].map((r) => (
-                                  <SelectItem key={r} value={r}>{r}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div>
-                            <Label className="text-zinc-300">Notes</Label>
-                            <Input value={rows[index].notes} onChange={(e) => setRow(index, { notes: e.target.value })} className={`rounded-xl ${classField()}`} placeholder="Brief details" />
-                          </div>
-                          {(() => {
-                            const needs = requirePhoto(row.checkpoint, rows[index].rating);
-                            return needs ? (
-                              <div>
-                                <Label className="text-zinc-300">Photo</Label>
-                                <Input
-                                  type="file"
-                                  accept="image/*"
-                                  ref={(el) => (inputFileRefs.current[row.checkpoint] = el)}
-                                  onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0], index)}
-                                  className={`rounded-xl ${classField()}`}
-                                />
-                              </div>
-                            ) : null;
-                          })()}
+            <div key={cat} className="card">
+              <details className="group" open>
+                <summary className="list-none cursor-pointer select-none px-4 py-3 flex items-center justify-between border-b border-zinc-800">
+                  <span className="text-zinc-100 font-medium">{cat}</span>
+                  <span className="text-zinc-400 text-xs">{items.length} checks</span>
+                </summary>
+                <div className="p-4 grid gap-3">
+                  {items.map((row) => {
+                    const index = rows.findIndex(r => r.checkpoint === row.checkpoint);
+                    const needs = requirePhoto(row.checkpoint, rows[index].rating);
+                    return (
+                      <div key={row.checkpoint} className="grid md:grid-cols-5 gap-3">
+                        <div className="col-span-2">
+                          <div className="text-zinc-300 text-sm mb-1">Checkpoint</div>
+                          <div className="text-zinc-100 text-sm">{row.checkpoint}</div>
+                          <div className="text-zinc-500 text-xs">Target: {CHECKPOINTS.find(c=>c.checkpoint===row.checkpoint)?.target}</div>
                         </div>
-                      );
-                    })}
-                  </div>
-                </details>
-              </CardContent>
-            </Card>
+
+                        <div>
+                          <div className="text-zinc-300 text-sm mb-1">Rating</div>
+                          <select
+                            value={rows[index].rating}
+                            onChange={(e) => setRow(index, { rating: e.target.value as Rating })}
+                            className="select"
+                          >
+                            {["Pass","Minor","Major","Critical","N/A"].map(r => <option key={r} value={r}>{r}</option>)}
+                          </select>
+                        </div>
+
+                        <div>
+                          <div className="text-zinc-300 text-sm mb-1">Notes</div>
+                          <input
+                            value={rows[index].notes}
+                            onChange={(e) => setRow(index, { notes: e.target.value })}
+                            className="input"
+                            placeholder="Brief details"
+                          />
+                        </div>
+
+                        {needs && (
+                          <div>
+                            <div className="text-zinc-300 text-sm mb-1">Photo</div>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              ref={(el) => { inputFileRefs.current[row.checkpoint] = el; }}
+                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                                const f = e.target.files?.[0];
+                                if (f) handleFile(f, index);
+                              }}
+                              className="input"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </details>
+            </div>
           ))}
         </div>
 
         <div className="sticky bottom-4 flex flex-wrap gap-2 justify-end">
-          <Button variant="secondary" className="rounded-xl" onClick={() => { clearDraft(); onCancel(); }}>Discard Draft</Button>
-          <Button className="rounded-xl" onClick={() => saveDraft({ venue, month, rows })}>Save Draft</Button>
-          <Button className="rounded-xl" onClick={finalise} disabled={!allComplete}><FileDown size={16} className="mr-2"/>Finalise</Button>
+          <button className="btn btn-secondary" onClick={() => { clearDraft(); onCancel(); }}>Discard Draft</button>
+          <button className="btn btn-secondary" onClick={() => saveDraft({ venue, month, rows })}>Save Draft</button>
+          <button className="btn btn-primary" onClick={finalise} disabled={!allComplete}><FileDown size={16}/>Finalise</button>
         </div>
       </div>
     </div>
   );
 }
 
-// ---------- Actions table ----------
+/** ---------- Actions table ---------- */
 function ActionsTable({ actions, update }: { actions: ActionItem[]; update: (id: string, patch: Partial<ActionItem>) => void }) {
   return (
     <div className="space-y-2">
       {actions.length === 0 && <div className="text-zinc-400 text-sm">No open actions. Nice.</div>}
-      {actions.map((a) => (
-        <div key={a.id} className="grid grid-cols-12 items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-xl p-3">
+      {actions.map(a => (
+        <div key={a.id} className="grid grid-cols-12 items-center gap-2 card p-3">
           <div className="col-span-3 text-zinc-200 text-sm">
             {a.venue} • {a.category}
             <div className="text-zinc-400 text-xs">{a.checkpoint}</div>
           </div>
-          <div className="col-span-2"><Badge className={badgeClass(a.rating)}>{a.rating}</Badge></div>
+          <div className="col-span-2"><span className={`badge ${badgeClass(a.rating)}`}>{a.rating}</span></div>
           <div className="col-span-3 text-zinc-300 text-xs">{a.description}</div>
           <div className="col-span-2 text-zinc-300 text-xs">Owner: {a.owner} • Due {a.due}</div>
           <div className="col-span-2 flex gap-2 justify-end">
-            <Button variant="secondary" className="rounded-xl" onClick={() => update(a.id, { status: "In Progress" })}>Start</Button>
-            <Button className="rounded-xl" onClick={() => update(a.id, { status: "Done" })}><CheckCircle2 size={16} className="mr-1"/>Close</Button>
+            <button className="btn btn-secondary" onClick={() => update(a.id, { status: "In Progress" })}>Start</button>
+            <button className="btn btn-primary" onClick={() => update(a.id, { status: "Done" })}><CheckCircle2 size={16}/>Close</button>
           </div>
         </div>
       ))}
@@ -511,62 +450,42 @@ function ActionsTable({ actions, update }: { actions: ActionItem[]; update: (id:
   );
 }
 
-// ---------- History ----------
+/** ---------- History ---------- */
 function AuditHistory() {
   const [items, setItems] = useState<Audit[]>(getHistory());
   const exportJSON = () => {
-    const blob = new Blob([JSON.stringify(items, null, 2)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify(items, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "auditHistory.json";
-    a.click();
-    URL.revokeObjectURL(url);
+    const a = document.createElement('a'); a.href = url; a.download = 'auditHistory.json'; a.click(); URL.revokeObjectURL(url);
   };
   const importJSON = async () => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = "application/json";
+    const input = document.createElement('input'); input.type = 'file'; input.accept = 'application/json';
     input.onchange = () => {
-      const f = input.files?.[0];
-      if (!f) return;
+      const f = input.files?.[0]; if (!f) return;
       const r = new FileReader();
-      r.onload = () => {
-        try {
-          const arr = JSON.parse(String(r.result));
-          if (Array.isArray(arr)) {
-            setHistory(arr);
-            setItems(arr);
-          }
-        } catch {}
-      };
+      r.onload = () => { try { const arr = JSON.parse(String(r.result)); if (Array.isArray(arr)) { setHistory(arr); setItems(arr); } } catch {} };
       r.readAsText(f);
     };
     input.click();
   };
   const exportPDF = (audit: Audit) => {
-    const doc = new jsPDF();
-    doc.setFontSize(16);
-    doc.text("Audit Report", 10, 10);
-    doc.setFontSize(12);
-    doc.text(`Venue: ${audit.venue}`, 10, 20);
-    doc.text(`Month: ${audit.month}`, 10, 26);
-    doc.text(`Score: ${audit.score}%`, 10, 32);
+    const doc = new jsPDF(); doc.setFontSize(16); doc.text("Audit Report", 10, 10);
+    doc.setFontSize(12); doc.text(`Venue: ${audit.venue}`, 10, 20); doc.text(`Month: ${audit.month}`, 10, 26); doc.text(`Score: ${audit.score}%`, 10, 32);
     doc.save(`audit_${audit.venue}_${audit.month}.pdf`);
   };
   return (
     <div className="space-y-3">
       <div className="flex gap-2">
-        <Button size="sm" className="rounded-xl" onClick={exportJSON}><Download size={14} className="mr-1"/>Export JSON</Button>
-        <Button size="sm" variant="secondary" className="rounded-xl" onClick={importJSON}><Upload size={14} className="mr-1"/>Import JSON</Button>
+        <button className="btn btn-primary" onClick={exportJSON}><Download size={14}/>Export JSON</button>
+        <button className="btn btn-secondary" onClick={importJSON}><Upload size={14}/>Import JSON</button>
       </div>
       {items.length === 0 && <div className="text-zinc-400 text-sm">No history yet. Finalise an audit to see it here.</div>}
-      {items.map((a) => (
-        <div key={a.id} className="flex items-center justify-between rounded-xl bg-zinc-900 border border-zinc-800 p-3">
+      {items.map(a => (
+        <div key={a.id} className="flex items-center justify-between card p-3">
           <div className="text-zinc-100 text-sm">{a.venue} • {a.month}</div>
           <div className="flex items-center gap-2">
             <ScoreBadge score={a.score} />
-            <Button size="sm" variant="secondary" className="rounded-xl" onClick={() => exportPDF(a)}><FileDown size={14} className="mr-1"/>Export PDF</Button>
+            <button className="btn btn-secondary" onClick={() => exportPDF(a)}><FileDown size={14}/>Export PDF</button>
           </div>
         </div>
       ))}
@@ -574,42 +493,41 @@ function AuditHistory() {
   );
 }
 
-// ---------- Deep Clean ----------
+/** ---------- Deep Clean ---------- */
 type DCItem = { id: string; title: string; due: string; done: boolean };
 function DeepCleanSchedule() {
   const [items, setItems] = useState<DCItem[]>(loadDC());
   const [title, setTitle] = useState("");
-  const [due, setDue] = useState(new Date().toISOString().slice(0, 10));
+  const [due, setDue] = useState(new Date().toISOString().slice(0,10));
   useEffect(() => { saveDC(items); }, [items]);
 
-  const add = () => {
-    if (!title || !due) return;
-    setItems((prev) => [...prev, { id: Math.random().toString(36).slice(2), title, due, done: false }]);
+  const add = () => { if (!title || !due) return;
+    setItems(prev => [...prev, { id: Math.random().toString(36).slice(2), title, due, done: false }]);
     setTitle("");
   };
-  const toggle = (id: string) => setItems((prev) => prev.map((i) => (i.id === id ? { ...i, done: !i.done } : i)));
-  const remove = (id: string) => setItems((prev) => prev.filter((i) => i.id !== id));
-  const today = new Date().toISOString().slice(0, 10);
+  const toggle = (id: string) => setItems(prev => prev.map(i => i.id === id ? { ...i, done: !i.done } : i));
+  const remove = (id: string) => setItems(prev => prev.filter(i => i.id !== id));
+  const today = new Date().toISOString().slice(0,10);
 
   return (
     <div className="space-y-4">
       <div className="grid md:grid-cols-3 gap-3">
         <div>
-          <Label className="text-zinc-300">Task</Label>
-          <Input value={title} onChange={(e) => setTitle(e.target.value)} className={`rounded-xl ${classField()}`} placeholder="e.g., Deep clean grill & hood" />
+          <div className="text-zinc-300 text-sm mb-1">Task</div>
+          <input value={title} onChange={(e)=>setTitle(e.target.value)} className="input" placeholder="e.g., Deep clean grill & hood" />
         </div>
         <div>
-          <Label className="text-zinc-300">Due date</Label>
-          <Input type="date" value={due} onChange={(e) => setDue(e.target.value)} className={`rounded-xl ${classField()}`} />
+          <div className="text-zinc-300 text-sm mb-1">Due date</div>
+          <input type="date" value={due} onChange={(e)=>setDue(e.target.value)} className="input" />
         </div>
         <div className="flex items-end">
-          <Button className="rounded-xl w-full" onClick={add}><Sparkles size={16} className="mr-2"/>Add Task</Button>
+          <button className="btn btn-primary w-full" onClick={add}><Sparkles size={16}/>Add Task</button>
         </div>
       </div>
 
       <div className="space-y-2">
         {items.length === 0 && <div className="text-zinc-400 text-sm">No deep cleans scheduled. Add your first task.</div>}
-        {items.map((item) => {
+        {items.map(item => {
           const overdue = !item.done && item.due < today;
           return (
             <div key={item.id} className={`flex items-center justify-between rounded-xl border p-3 ${overdue ? "border-red-500/40 bg-red-950/20" : "border-zinc-800 bg-zinc-900"}`}>
@@ -618,8 +536,8 @@ function DeepCleanSchedule() {
                 <div className={`text-xs ${overdue ? "text-red-400" : "text-zinc-400"}`}>Due {item.due}{overdue ? " • Overdue" : ""}</div>
               </div>
               <div className="flex gap-2">
-                <Button variant="secondary" className="rounded-xl" onClick={() => toggle(item.id)}>{item.done ? "Undo" : "Mark Done"}</Button>
-                <Button className="rounded-xl" onClick={() => remove(item.id)}>Remove</Button>
+                <button className="btn btn-secondary" onClick={()=>toggle(item.id)}>{item.done ? "Undo" : "Mark Done"}</button>
+                <button className="btn btn-primary" onClick={()=>remove(item.id)}>Remove</button>
               </div>
             </div>
           );
@@ -629,87 +547,46 @@ function DeepCleanSchedule() {
   );
 }
 
-// ---------- Self-tests ----------
-function useSelfTests() {
-  useEffect(() => {
-    const base = 100;
-    console.assert(base - severityWeight["Minor"] * 5 === 95, "Minor should deduct 5");
-    console.assert(base - severityWeight["Major"] * 5 === 85, "Major should deduct 15");
-    console.assert(base - severityWeight["Critical"] * 5 === 75, "Critical should deduct 25");
-    console.assert(band(91) === "green", "≥90 green");
-    console.assert(band(80) === "amber", "75–89 amber");
-    console.assert(band(60) === "red", "<75 red");
-    const d0 = daysFromNow(0); const d2 = daysFromNow(2);
-    console.assert(d0.length === 10 && d0.includes("-"), "daysFromNow format");
-    console.assert(d2 >= d0, "daysFromNow forward");
-  }, []);
-}
-
-// ---------- Root Page ----------
+/** ---------- Root Page ---------- */
 export default function Page() {
-  useSelfTests();
-  type Route = "splash" | "dashboard" | "full" | "actions" | "history" | "deepclean" | "complete";
-  const [route, setRoute] = useState<Route>("splash");
+  type Route = "dashboard" | "full" | "actions" | "history" | "deepclean" | "complete";
+  const [route, setRoute] = useState<Route>("dashboard");
   const [venue, setVenue] = useState<Venue | "All">("All");
   const [actions, setActions] = useState<ActionItem[]>([
     { id: "a1", venue: "Suzie Q", month: "2025-06", category: "Food Safety & Hygiene", checkpoint: "Fridge ≤ 5 °C / Freezer ≤ −15 °C", rating: "Major", owner: "Sous Chef", due: daysFromNow(1), status: "Open", description: "Verify temps; calibrate probes; discard non-compliant stock; log corrective action." },
   ]);
   const [pdfUrl, setPdfUrl] = useState<string>("");
 
-  // Splash → Dashboard after 2.5s
-  useEffect(() => {
-    if (route !== "splash") return;
-    const t = setTimeout(() => setRoute("dashboard"), 2500);
-    return () => clearTimeout(t);
-  }, [route]);
+  const updateAction = (id: string, patch: Partial<ActionItem>) => setActions(a => a.map(x => x.id === id ? { ...x, ...patch } : x));
 
-  const updateAction = (id: string, patch: Partial<ActionItem>) =>
-    setActions((a) => a.map((x) => (x.id === id ? { ...x, ...patch } : x)));
-
-  const onFinalise = (newActions: ActionItem[], audit: Audit, pdfUrlFromAudit: string | URL) => {
-    setActions((a) => [...newActions, ...a]);
-    setPdfUrl(typeof pdfUrlFromAudit === "string" ? pdfUrlFromAudit : pdfUrlFromAudit.toString());
+  const onFinalise = (newActions: ActionItem[], audit: Audit, pdfUrlFromAudit: string) => {
+    setActions(a => [...newActions, ...a]);
+    setPdfUrl(pdfUrlFromAudit);
     setRoute("complete");
   };
 
   const Header = (
     <header className="flex items-center justify-between p-4 md:p-0">
       <div className="flex items-center gap-3">
-        <div className="p-2 rounded-2xl bg-zinc-900 border border-zinc-800"><Factory size={18} /></div>
+        <div className="p-2 rounded-2xl bg-zinc-900 border border-zinc-800"><Factory size={18}/></div>
         <h1 className="text-2xl font-semibold">Monthly Audit – Suzie Q & Windsor Wine Room</h1>
       </div>
       <div className="flex items-center gap-2">
-        {route !== "splash" && (
-          <>
-            <Button size="sm" variant="secondary" className="rounded-xl" onClick={() => setRoute("dashboard")}>Home</Button>
-            <Select value={venue} onValueChange={(v) => setVenue(v as any)}>
-              <SelectTrigger className={`rounded-xl w-[200px] bg-zinc-900 border-zinc-800 text-zinc-100`}><SelectValue placeholder="All Venues"/></SelectTrigger>
-              <SelectContent className="bg-zinc-900 text-zinc-100 border-zinc-800">
-                <SelectItem value="All">All Venues</SelectItem>
-                {VENUES.map((v) => (
-                  <SelectItem key={v} value={v}>{v}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </>
-        )}
+        <button className="btn btn-secondary" onClick={() => setRoute("dashboard")}>Home</button>
+        <select value={venue} onChange={(e) => setVenue(e.target.value as any)} className="select w-[200px]">
+          <option value="All">All Venues</option>
+          {VENUES.map(v => <option key={v} value={v}>{v}</option>)}
+        </select>
       </div>
     </header>
   );
 
   return (
-    <div className="min-h-screen bg-[#0E0E10] text-zinc-100 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-6xl mx-auto space-y-6">
-        {route !== "splash" && Header}
+        {Header}
 
-        <Screen routeKey={route}>
-          {route === "splash" && (
-            <div className="flex items-center justify-center h-[80vh]">
-              {/* Place /public/mamas-logo.png in your project */}
-              <img src="/mamas-logo.png" alt="Mamas Dining Group" className="w-[260px] h-auto opacity-95" />
-            </div>
-          )}
-
+        <div>
           {route === "dashboard" && (
             <Dashboard
               venue={venue}
@@ -727,9 +604,9 @@ export default function Page() {
             <div className="space-y-4">
               <div className="flex justify-between items-center">
                 <div className="text-zinc-300 text-sm">Open actions created from your audits.</div>
-                <Button variant="secondary" className="rounded-xl" onClick={() => setRoute("dashboard")}>Back to Dashboard</Button>
+                <button className="btn btn-secondary" onClick={() => setRoute("dashboard")}>Back to Dashboard</button>
               </div>
-              <ActionsTable actions={actions.filter((a) => (venue === "All" ? true : a.venue === venue))} update={updateAction} />
+              <ActionsTable actions={actions.filter(a => venue === "All" ? true : a.venue === venue)} update={updateAction} />
             </div>
           )}
 
@@ -737,7 +614,7 @@ export default function Page() {
             <div className="space-y-4">
               <div className="flex justify-between items-center">
                 <div className="text-zinc-300 text-sm">Previously finalised audits</div>
-                <Button variant="secondary" className="rounded-xl" onClick={() => setRoute("dashboard")}>Back to Dashboard</Button>
+                <button className="btn btn-secondary" onClick={() => setRoute("dashboard")}>Back to Dashboard</button>
               </div>
               <AuditHistory />
             </div>
@@ -747,7 +624,7 @@ export default function Page() {
             <div className="space-y-4">
               <div className="flex justify-between items-center">
                 <div className="text-zinc-300 text-sm">Deep cleaning tasks & schedules</div>
-                <Button variant="secondary" className="rounded-xl" onClick={() => setRoute("dashboard")}>Back to Dashboard</Button>
+                <button className="btn btn-secondary" onClick={() => setRoute("dashboard")}>Back to Dashboard</button>
               </div>
               <DeepCleanSchedule />
             </div>
@@ -758,18 +635,16 @@ export default function Page() {
               <div className="text-3xl font-semibold mb-2">Audit Completed</div>
               <div className="text-zinc-400 mb-6">Nice work. Your PDF is ready.</div>
               <div className="flex gap-3">
-                <a href={String(pdfUrl)} target="_blank" rel="noopener noreferrer">
-                  <Button className="rounded-xl"><FileDown size={16} className="mr-2"/>View PDF</Button>
-                </a>
-                <Button variant="secondary" className="rounded-xl" onClick={() => setRoute("dashboard")}>
-                  Return to Dashboard
-                </Button>
+                <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="btn btn-primary"><FileDown size={16}/>View PDF</a>
+                <button className="btn btn-secondary" onClick={()=>setRoute("dashboard")}>Return to Dashboard</button>
               </div>
             </div>
           )}
-        </Screen>
+        </div>
 
-        {route !== "splash" && <footer className="text-xs text-zinc-500 pt-6">Drafts save locally until Finalised. Scoring: ≥90 Green, 75-89 Amber, &lt;75 Red.</footer>}
+        <footer className="text-xs text-zinc-500 pt-6">
+          Drafts save locally until Finalised. Scoring: ≥90 Green, 75-89 Amber, &lt;75 Red.
+        </footer>
       </div>
     </div>
   );
