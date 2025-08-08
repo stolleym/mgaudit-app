@@ -1,5 +1,3 @@
-// @ts-ignore
-import autoTable from "jspdf-autotable";
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -12,6 +10,7 @@ import {
 import jsPDF from "jspdf";
 // @ts-ignore - plugin augments jsPDF at runtime
 import autoTable from "jspdf-autotable";
+
 
 /** ---------------------------------------------------------
  * Tiny in-file UI helpers so you don’t need any UI libraries
