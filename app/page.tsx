@@ -9,8 +9,9 @@ type Checkpoint = {
   photo?: boolean; // optional
 };
 
+type Rating = "Pass" | "Fail" | "N/A";
+
 // --- data ---
-// Replace your existing CHECKPOINTS definition with this one:
 const CHECKPOINTS: ReadonlyArray<Checkpoint> = [
   { category: "System Compliance", checkpoint: "Prep lists fully ticked?", target: "100%", owner: "Sous Chef", defaultDue: 3, suggested: "Audit daily prep sheets; retrain on completion standard; implement AM spot-check." },
   { category: "System Compliance", checkpoint: "SOPs followed on line?", target: "0 deviations", owner: "Head Chef", defaultDue: 3, suggested: "Run 2-dish line check; correct deviations; sign-off on shift brief." },
@@ -30,3 +31,29 @@ const CHECKPOINTS: ReadonlyArray<Checkpoint> = [
   { category: "Guest / Staff Feedback", checkpoint: "Staff training hours", target: "≥ 2 h pp / month", owner: "Head Chef", defaultDue: 14, suggested: "Schedule training blocks; capture attendance; sign-off." },
   { category: "Maintenance", checkpoint: "Critical equipment serviced", target: "No overdue", owner: "Venue Manager", defaultDue: 3, suggested: "Book tech; tag out if needed; close work order." },
 ];
+
+// --- helper functions ---
+const requirePhoto = (checkpoint: string, rating: Rating) => {
+  const meta = CHECKPOINTS.find(c => c.checkpoint === checkpoint) as Checkpoint | undefined;
+  if (meta?.photo) return true;
+  if (rating !== "Pass" && rating !== "N/A") return true;
+  return false;
+};
+
+// --- placeholder UI ---
+export default function Page() {
+  return (
+    <main style={{ padding: "2rem" }}>
+      <h1>MG Audit App</h1>
+      <p>Checkpoint list with photo requirement logic is loaded.</p>
+      <ul>
+        {CHECKPOINTS.map(cp => (
+          <li key={cp.checkpoint}>
+            <strong>{cp.checkpoint}</strong>
+            {cp.photo && " 📷"}
+          </li>
+        ))}
+      </ul>
+    </main>
+  );
+}
