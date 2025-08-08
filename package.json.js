@@ -19,6 +19,8 @@
     "recharts": "^2.12.7"
   },
   "devDependencies": {
+    "@types/node": "^20.12.12",
+    "@types/react": "^18.2.66",
     "autoprefixer": "^10.4.18",
     "postcss": "^8.4.35",
     "tailwindcss": "^3.4.7",
