@@ -229,7 +229,7 @@ function KPI({
   );
 }
 
-ffunction Dashboard({
+function Dashboard({
   venue,
   actions,
   onStartNew,
