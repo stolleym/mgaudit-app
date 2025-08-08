@@ -15,19 +15,6 @@ import {
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import jsPDF from "jspdf";
 
-// ---------- Tiny CSS transition wrapper ----------
-function Screen({ children, routeKey }: { children: React.ReactNode; routeKey: string }) {
-  return (
-    <div key={routeKey} className="animate-fadeinup">
-      <style>{`
-        @keyframes fadeinup { 0%{opacity:0; transform:translateY(12px)} 100%{opacity:1; transform:translateY(0)} }
-        .animate-fadeinup { animation: fadeinup .35s ease-out }
-      `}</style>
-      {children}
-    </div>
-  );
-}
-
 // ---------- Domain data ----------
 const VENUES = ["Suzie Q", "Windsor Wine Room"] as const;
 type Venue = typeof VENUES[number];
@@ -40,7 +27,15 @@ type Checkpoint = {
   owner: string;
   defaultDue: number;
   suggested: string;
-  photo?: boolean; // optional
+  photo?: boolean;
+};
+
+type AuditRow = {
+  category: string;
+  checkpoint: string;
+  rating: Rating;
+  notes: string;
+  photoDataUrl: string;
 };
 
 const severityWeight: Record<Rating, number> = { Pass: 0, Minor: 1, Major: 3, Critical: 5, "N/A": 0 };
@@ -71,13 +66,13 @@ const DRAFT_KEY = "auditDraft";
 const HISTORY_KEY = "auditHistory";
 const DC_KEY = "deepCleanTasks";
 const loadDraft = () => { try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || "null"); } catch { return null; } };
-const saveDraft = (v: any) => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(v)); } catch {} };
+const saveDraft = (v: unknown) => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(v)); } catch {} };
 const clearDraft = () => { try { localStorage.removeItem(DRAFT_KEY); } catch {} };
 const getHistory = () => { try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); } catch { return []; } };
-const setHistory = (arr: any[]) => { try { localStorage.setItem(HISTORY_KEY, JSON.stringify(arr)); } catch {} };
-const pushHistory = (a: any) => { const h = getHistory(); h.push(a); setHistory(h); };
+const setHistory = (arr: unknown[]) => { try { localStorage.setItem(HISTORY_KEY, JSON.stringify(arr)); } catch {} };
+const pushHistory = (a: unknown) => { const h = getHistory(); h.push(a); setHistory(h); };
 const loadDC = () => { try { return JSON.parse(localStorage.getItem(DC_KEY) || "[]"); } catch { return []; } };
-const saveDC = (v: any[]) => { try { localStorage.setItem(DC_KEY, JSON.stringify(v)); } catch {} };
+const saveDC = (v: unknown[]) => { try { localStorage.setItem(DC_KEY, JSON.stringify(v)); } catch {} };
 
 // ---------- Utilities ----------
 function daysFromNow(days: number) { const d = new Date(); d.setDate(d.getDate() + Math.max(0, days)); return d.toISOString().slice(0,10); }
@@ -189,8 +184,14 @@ function FullAudit({ onFinalise, onCancel }: { onFinalise: (actions: any[], audi
   const draft = loadDraft();
   const [venue, setVenue] = useState<Venue>(draft?.venue || "Suzie Q");
   const [month, setMonth] = useState(draft?.month || new Date().toISOString().slice(0,7));
-  const initial = draft?.rows || CHECKPOINTS.map(cp => ({ category: cp.category, checkpoint: cp.checkpoint, rating: "Pass" as Rating, notes: "", photoDataUrl: "" }));
-  const [rows, setRows] = useState(initial);
+  const initial: AuditRow[] = (draft?.rows as AuditRow[] | undefined) || CHECKPOINTS.map((cp) => ({
+    category: cp.category,
+    checkpoint: cp.checkpoint,
+    rating: "Pass",
+    notes: "",
+    photoDataUrl: "",
+  }));
+  const [rows, setRows] = useState<AuditRow[]>(initial);
   useEffect(() => { saveDraft({ venue, month, rows }); }, [venue, month, rows]);
 
   const inputFileRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -203,15 +204,18 @@ function FullAudit({ onFinalise, onCancel }: { onFinalise: (actions: any[], audi
   };
 
   const grouped = useMemo(() => {
-    const m = new Map<string, any[]>();
-    rows.forEach(r => { if (!m.has(r.category)) m.set(r.category, []); m.get(r.category)!.push(r); });
+    const m = new Map<string, AuditRow[]>();
+    rows.forEach((r: AuditRow) => {
+      if (!m.has(r.category)) m.set(r.category, []);
+      m.get(r.category)!.push(r);
+    });
     return Array.from(m.entries());
   }, [rows]);
 
-  const sectionProgress = useMemo(() => {
+  const sectionProgress = useMemo((): { cat: string; total: number; done: number }[] => {
     return grouped.map(([cat, items]) => {
-      const total = (items as any[]).length;
-      const done = (items as any[]).filter((row: any) => {
+      const total = items.length;
+      const done = items.filter((row) => {
         const needsPhoto = requirePhoto(row.checkpoint, row.rating);
         const hasPhoto = !!row.photoDataUrl;
         return !needsPhoto || (needsPhoto && hasPhoto);
@@ -222,7 +226,8 @@ function FullAudit({ onFinalise, onCancel }: { onFinalise: (actions: any[], audi
 
   const allComplete = sectionProgress.every(s => s.done === s.total);
 
-  const setRow = (index: number, patch: Partial<typeof rows[number]>) => setRows(prev => prev.map((r,i) => i===index ? { ...r, ...patch } : r));
+  const setRow = (index: number, patch: Partial<AuditRow>) =>
+    setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
 
   const handleFile = (file: File, index: number) => {
     const reader = new FileReader();
@@ -243,7 +248,7 @@ function FullAudit({ onFinalise, onCancel }: { onFinalise: (actions: any[], audi
     doc.text(`Month: ${audit.month}`, 10, 26);
     doc.text(`Score: ${audit.score}%`, 10, 32);
     let y = 42;
-    audit.rows.forEach((r: any, i: number) => {
+    audit.rows.forEach((r: AuditRow, i: number) => {
       doc.text(`${i + 1}. [${r.category}] ${r.checkpoint} - ${r.rating}`, 10, y); y += 6;
       if (r.notes) { doc.text(`Notes: ${r.notes}`, 14, y); y += 6; }
       if (embedPhotos && r.photoDataUrl) {
@@ -259,7 +264,7 @@ function FullAudit({ onFinalise, onCancel }: { onFinalise: (actions: any[], audi
     const missing = validatePhotos();
     if (missing) { alert(`Photo required for: ${missing}`); return; }
     let score = 100; const actions: any[] = [];
-    rows.forEach(r => {
+    rows.forEach((r) => {
       const sev = severityWeight[r.rating];
       score = Math.max(0, score - sev * 5);
       if (r.rating !== "Pass" && r.rating !== "N/A") {
@@ -328,10 +333,10 @@ function FullAudit({ onFinalise, onCancel }: { onFinalise: (actions: any[], audi
                 <details className="group" open>
                   <summary className="list-none cursor-pointer select-none px-4 py-3 flex items-center justify-between border-b border-zinc-800">
                     <span className="text-zinc-100 font-medium">{cat}</span>
-                    <span className="text-zinc-400 text-xs">{(items as any).length} checks</span>
+                    <span className="text-zinc-400 text-xs">{items.length} checks</span>
                   </summary>
                   <div className="p-4 grid gap-3">
-                    {(items as any).map((row: any) => {
+                    {items.map((row) => {
                       const index = rows.findIndex(r => r.checkpoint === row.checkpoint);
                       return (
                         <div key={row.checkpoint} className="grid md:grid-cols-5 gap-3 bg-zinc-900">
@@ -538,7 +543,7 @@ export default function Page() {
   const Header = (
     <header className="flex items-center justify-between">
       <div className="flex items-center gap-3">
-        <div className="p-2 rounded-2xl bg-zinc-900 border border-zinc-800"><Factory size={18}/></div>
+        <div className="p-2 rounded-2xl bg-zinc-900 border-zinc-800"><Factory size={18}/></div>
         <h1 className="text-2xl font-semibold">Monthly Audit – Suzie Q & Windsor Wine Room</h1>
       </div>
       <div className="flex items-center gap-2">
@@ -563,7 +568,7 @@ export default function Page() {
       <div className="max-w-6xl mx-auto space-y-6">
         {route !== "splash" && Header}
 
-        <Screen routeKey={route}>
+        <div className="animate-fadeinup">
           {route === "splash" && (
             <div className="flex items-center justify-center h-[80vh]">
               <Image src="/mamas-logo.png" alt="Mamas Dining Group" width={260} height={260} className="opacity-95" priority />
@@ -615,7 +620,7 @@ export default function Page() {
               </div>
             </div>
           )}
-        </Screen>
+        </div>
 
         {route !== "splash" && <footer className="text-xs text-zinc-500 pt-6">Drafts save locally until Finalised. Scoring: ≥90 Green, 75-89 Amber, &lt;75 Red.</footer>}
       </div>
