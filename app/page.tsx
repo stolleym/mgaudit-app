@@ -1,5 +1,10 @@
 "use client";
 
+import jsPDF from "jspdf";
+// Load the plugin for side effects (attaches autoTable to jsPDF)
+import "jspdf-autotable";
+
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
