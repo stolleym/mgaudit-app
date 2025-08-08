@@ -1,3 +1,5 @@
+import "./globals.css";
+
 export const metadata = {
   title: "Monthly Audit",
   description: "Simple audit app (no splash, no shadcn)"
