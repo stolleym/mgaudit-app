@@ -2,28 +2,30 @@
   "name": "mgaudit-app",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
+  "engines": { "node": "20.x" },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
-  },
-  "engines": {
-    "node": "20.x"
+    "vercel-build": "next build",
+    "start": "next start",
+    "lint": "next lint"
   },
   "dependencies": {
-    "jspdf": "^2.5.1",
-    "lucide-react": "^0.378.0",
+    "jspdf": "2.5.1",
+    "lucide-react": "0.453.0",
     "next": "14.2.4",
-    "react": "18.2.0",
-    "react-dom": "18.2.0",
-    "recharts": "^2.12.7"
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "recharts": "2.12.7"
   },
   "devDependencies": {
-    "@types/node": "^20.12.12",
-    "@types/react": "^18.2.66",
-    "autoprefixer": "^10.4.18",
-    "postcss": "^8.4.35",
-    "tailwindcss": "^3.4.7",
-    "typescript": "^5.4.5"
+    "@types/node": "20.14.10",
+    "@types/react": "18.3.3",
+    "@types/react-dom": "18.3.0",
+    "autoprefixer": "10.4.19",
+    "postcss": "8.4.40",
+    "tailwindcss": "3.4.10",
+    "typescript": "5.4.5"
   }
 }
