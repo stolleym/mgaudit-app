@@ -8,6 +8,8 @@ import {
   CheckCircle2, AlertTriangle, XCircle, TrendingUp, Factory, History, PlayCircle, FileDown, Upload, Download, Sparkles, X as XIcon
 } from "lucide-react";
 import jsPDF from "jspdf";
+// @ts-ignore - plugin augments jsPDF at runtime
+import autoTable from "jspdf-autotable";
 
 /** ---------------------------------------------------------
  * Tiny in-file UI helpers so you don’t need any UI libraries
