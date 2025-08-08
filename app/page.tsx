@@ -1,159 +1,32 @@
-'use client';
-
-import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Download, CheckCircle, XCircle } from 'lucide-react';
-import jsPDF from 'jspdf';
-
-// TYPES
-type Rating = 'Pass' | 'Fail' | 'N/A';
-
-interface Checkpoint {
+// --- types ---
+type Checkpoint = {
   category: string;
   checkpoint: string;
   target: string;
   owner: string;
   defaultDue: number;
   suggested: string;
-  photo?: boolean; // <-- FIXED: added photo property as optional
-}
+  photo?: boolean; // optional
+};
 
-// DATA
-const CHECKPOINTS: Checkpoint[] = [
-  {
-    category: 'System Compliance',
-    checkpoint: 'Prep lists fully ticked?',
-    target: '100%',
-    owner: 'Sous Chef',
-    defaultDue: 3,
-    suggested: 'Audit daily prep sheets; retrain on completion standard; implement AM spot-check.',
-    photo: false
-  },
-  {
-    category: 'Cleanliness',
-    checkpoint: 'Deep clean completed',
-    target: 'Weekly',
-    owner: 'Head Chef',
-    defaultDue: 7,
-    suggested: 'Schedule all-staff deep clean and document with photos.',
-    photo: true
-  },
-  // ... add the rest of your checkpoints here with `photo: true/false`
+// --- data ---
+// Replace your existing CHECKPOINTS definition with this one:
+const CHECKPOINTS: ReadonlyArray<Checkpoint> = [
+  { category: "System Compliance", checkpoint: "Prep lists fully ticked?", target: "100%", owner: "Sous Chef", defaultDue: 3, suggested: "Audit daily prep sheets; retrain on completion standard; implement AM spot-check." },
+  { category: "System Compliance", checkpoint: "SOPs followed on line?", target: "0 deviations", owner: "Head Chef", defaultDue: 3, suggested: "Run 2-dish line check; correct deviations; sign-off on shift brief." },
+  { category: "Food Safety & Hygiene", checkpoint: "Allergen matrix current & on-hand", target: "Matches menu & labels", owner: "Duty Manager", defaultDue: 1, suggested: "Print current matrix; cross-check labels; brief FOH/BOH." },
+  { category: "Food Safety & Hygiene", checkpoint: "Fridge ≤ 5 °C / Freezer ≤ −15 °C", target: "100%", owner: "Sous Chef", defaultDue: 0, suggested: "Verify temps; calibrate probes; discard non-compliant stock; log corrective action.", photo: true },
+  { category: "Food Safety & Hygiene", checkpoint: "Cleaning schedule signed", target: "100%", owner: "Section Leads", defaultDue: 2, suggested: "Close gaps; reassign tasks; implement sign-off photo proof." },
+  { category: "Food Quality", checkpoint: "Tasting panel (2 dishes)", target: "≥ 2 (Good)", owner: "Head Chef", defaultDue: 2, suggested: "Run panel; adjust seasoning/plating; update plate spec.", photo: true },
+  { category: "Food Quality", checkpoint: "Presentation matches photos", target: "Yes", owner: "Head Chef", defaultDue: 2, suggested: "Refresh plating demo; update pass photo; brief team.", photo: true },
+  { category: "Health & Safety", checkpoint: "Knife & PPE checks", target: "No defects", owner: "Sous Chef", defaultDue: 0, suggested: "Replace damaged PPE; log and educate; certify knives safe." },
+  { category: "Health & Safety", checkpoint: "New hazards logged", target: "Up to date", owner: "Duty Manager", defaultDue: 1, suggested: "Log hazards; assign controls; verify by EOD." },
+  { category: "Council / Regulatory", checkpoint: "Required docs on-site & in date", target: "100%", owner: "Venue Manager", defaultDue: 0, suggested: "Update folder; print missing docs; date-stamp review." },
+  { category: "Council / Regulatory", checkpoint: "Probe calibration < 7 days", target: "Yes", owner: "Sous Chef", defaultDue: 0, suggested: "Calibrate or replace; attach certificate; reset reminder." },
+  { category: "KPIs", checkpoint: "POS / Payroll", target: "≤ 17.5%", owner: "Venue Manager", defaultDue: 7, suggested: "Adjust rosters; cap OT; align staffing to forecast; review after 1 week." },
+  { category: "KPIs", checkpoint: "COGS % (last week)", target: "≤ 30%", owner: "Head Chef", defaultDue: 7, suggested: "Trim high-cost SKUs; portion checks; negotiate buys; monitor daily." },
+  { category: "KPIs", checkpoint: "Wastage $", target: "↓ week-on-week", owner: "Head Chef", defaultDue: 7, suggested: "Introduce waste board; butcher maps; next-day review." },
+  { category: "Guest / Staff Feedback", checkpoint: "Public reviews ≥ 4★", target: "≥ 4.7", owner: "Venue Manager", defaultDue: 7, suggested: "Reply to reviews; table touches; service huddles." },
+  { category: "Guest / Staff Feedback", checkpoint: "Staff training hours", target: "≥ 2 h pp / month", owner: "Head Chef", defaultDue: 14, suggested: "Schedule training blocks; capture attendance; sign-off." },
+  { category: "Maintenance", checkpoint: "Critical equipment serviced", target: "No overdue", owner: "Venue Manager", defaultDue: 3, suggested: "Book tech; tag out if needed; close work order." },
 ];
-
-// COMPONENT
-export default function Page() {
-  const [ratings, setRatings] = useState<Record<string, Rating>>({});
-  const [notes, setNotes] = useState<Record<string, string>>({});
-  const [photos, setPhotos] = useState<Record<string, string>>({});
-  const [completed, setCompleted] = useState(false);
-
-  // requirePhoto now safely checks
-  const requirePhoto = (checkpoint: string, rating: Rating) => {
-    const meta = CHECKPOINTS.find(c => c.checkpoint === checkpoint);
-    if (meta?.photo) return true;
-    if (rating !== 'Pass' && rating !== 'N/A') return true;
-    return false;
-  };
-
-  const handleRating = (checkpoint: string, rating: Rating) => {
-    setRatings(prev => ({ ...prev, [checkpoint]: rating }));
-  };
-
-  const handleNote = (checkpoint: string, note: string) => {
-    setNotes(prev => ({ ...prev, [checkpoint]: note }));
-  };
-
-  const handlePhoto = (checkpoint: string, file: File) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setPhotos(prev => ({ ...prev, [checkpoint]: reader.result as string }));
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleSubmit = () => {
-    // Could add validation here
-    setCompleted(true);
-  };
-
-  const exportPDF = () => {
-    const doc = new jsPDF();
-    doc.text('Audit Report', 10, 10);
-    CHECKPOINTS.forEach((cp, idx) => {
-      doc.text(`${idx + 1}. ${cp.checkpoint}`, 10, 20 + idx * 10);
-      doc.text(`Rating: ${ratings[cp.checkpoint] || ''}`, 80, 20 + idx * 10);
-    });
-    doc.save('audit.pdf');
-  };
-
-  return (
-    <div className="p-6 space-y-6">
-      <img
-        src="/mamas-logo.png"
-        alt="Logo"
-        className="h-12"
-        onError={(e) => {
-          (e.target as HTMLImageElement).style.display = 'none';
-        }}
-      />
-      {CHECKPOINTS.map((cp) => (
-        <Card key={cp.checkpoint}>
-          <CardContent>
-            <h2 className="text-lg font-bold">{cp.checkpoint}</h2>
-            <div className="flex gap-2 mt-2">
-              <Button
-                onClick={() => handleRating(cp.checkpoint, 'Pass')}
-                variant={ratings[cp.checkpoint] === 'Pass' ? 'default' : 'outline'}
-              >
-                Pass
-              </Button>
-              <Button
-                onClick={() => handleRating(cp.checkpoint, 'Fail')}
-                variant={ratings[cp.checkpoint] === 'Fail' ? 'default' : 'outline'}
-              >
-                Fail
-              </Button>
-              <Button
-                onClick={() => handleRating(cp.checkpoint, 'N/A')}
-                variant={ratings[cp.checkpoint] === 'N/A' ? 'default' : 'outline'}
-              >
-                N/A
-              </Button>
-            </div>
-            <textarea
-              placeholder="Notes"
-              value={notes[cp.checkpoint] || ''}
-              onChange={(e) => handleNote(cp.checkpoint, e.target.value)}
-              className="w-full mt-2 border rounded p-2"
-            />
-            {requirePhoto(cp.checkpoint, ratings[cp.checkpoint] || 'N/A') && (
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => e.target.files && handlePhoto(cp.checkpoint, e.target.files[0])}
-                className="mt-2"
-              />
-            )}
-          </CardContent>
-        </Card>
-      ))}
-
-      {!completed ? (
-        <Button onClick={handleSubmit} className="mt-4">
-          Complete Audit
-        </Button>
-      ) : (
-        <div className="flex flex-col items-center mt-4">
-          <CheckCircle className="text-green-500 h-8 w-8" />
-          <p className="mt-2">Audit completed!</p>
-          <div className="flex gap-2 mt-2">
-            <Button onClick={exportPDF}>View PDF</Button>
-            <Button onClick={() => setCompleted(false)}>Return to Dashboard</Button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
