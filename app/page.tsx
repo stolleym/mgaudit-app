@@ -1,3 +1,5 @@
+// @ts-ignore
+import autoTable from "jspdf-autotable";
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
