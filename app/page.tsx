@@ -229,7 +229,7 @@ function KPI({
   );
 }
 
-function Dashboard({
+ffunction Dashboard({
   venue,
   actions,
   onStartNew,
@@ -244,12 +244,29 @@ function Dashboard({
   onDeep: () => void;
   onOpenActions: (severity: "Critical" | "Major") => void;
 }) {
-  const data = useMemo(
-    () => mockAudits.filter(a => (venue === "All" ? true : a.venue === venue)),
-    [venue]
-  );
-  const latest = data[data.length - 1];
-  const lineData = data.map(d => ({ month: d.month, score: d.score }));
+  // Pull real audits from localStorage history and filter by venue
+  const history = useMemo(() => {
+    const all = getHistory(); // returns Audit[]
+    return all.filter(a => (venue === "All" ? true : a.venue === venue));
+  }, [venue]);
+
+  const latest = history[history.length - 1] || null;
+
+  // Line chart: last 6 audits’ scores
+  const lineData = history.slice(-6).map(a => ({ month: a.month, score: a.score }));
+
+  // Ratings distribution for last 3 audits, derived from row ratings
+  // Mapping: Pass/N/A = Green, Minor = Amber, Major/Critical = Red
+  const last3 = history.slice(-3);
+  const ratingsData = last3.map(a => {
+    let Green = 0, Amber = 0, Red = 0;
+    a.rows.forEach(r => {
+      if (r.rating === "Pass" || r.rating === "N/A") Green += 1;
+      else if (r.rating === "Minor") Amber += 1;
+      else Red += 1; // Major or Critical
+    });
+    return { month: a.month, Green, Amber, Red };
+  });
 
   const openCritical = actions.filter(
     a => a.status !== "Done" && (venue === "All" ? true : a.venue === venue) && a.rating === "Critical"
@@ -262,7 +279,11 @@ function Dashboard({
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap gap-2 justify-between items-center">
-        <div className="text-zinc-300 text-sm">Welcome back. Start a fresh audit or review history.</div>
+        <div className="text-zinc-300 text-sm">
+          {history.length === 0
+            ? "Welcome! Start your first audit to see charts here."
+            : "Welcome back. Start a fresh audit or review history."}
+        </div>
         <div className="flex gap-2">
           <Button onClick={onStartNew}><PlayCircle size={16} />Start New Audit</Button>
           <Button variant="secondary" onClick={onHistory}><History size={16} />Audit History</Button>
@@ -270,40 +291,129 @@ function Dashboard({
         </div>
       </div>
 
+      {/* KPI tiles */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <KPI title="Latest Audit Score" value={<ScoreBadge score={latest?.score ?? 0} />} />
+        <Card className="shadow-md">
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-zinc-800"><TrendingUp size={18} /></div>
+            <div className="flex-1">
+              <div className="text-zinc-400 text-xs">Latest Audit Score</div>
+              <div className="text-zinc-100 text-xl font-semibold">
+                {latest ? <ScoreBadge score={latest.score} /> : <span className="text-zinc-400 text-sm">No data yet</span>}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
-        <KPI
-          title="Open Critical Actions"
-          value={<div className="flex items-center gap-2"><XCircle size={16} />{openCritical}</div>}
+        <Card
+          className="shadow-md cursor-pointer hover:bg-zinc-900/70 hover:border-zinc-700 transition-colors"
+          // @ts-expect-error div handler
           onClick={() => onOpenActions("Critical")}
-        />
+        >
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-zinc-800"><XCircle size={18} /></div>
+            <div className="flex-1">
+              <div className="text-zinc-400 text-xs">Open Critical Actions</div>
+              <div className="text-zinc-100 text-xl font-semibold">{openCritical}</div>
+            </div>
+          </CardContent>
+        </Card>
 
-        <KPI
-          title="Open Major Actions"
-          value={<div className="flex items-center gap-2"><AlertTriangle size={16} />{openMajor}</div>}
+        <Card
+          className="shadow-md cursor-pointer hover:bg-zinc-900/70 hover:border-zinc-700 transition-colors"
+          // @ts-expect-error div handler
           onClick={() => onOpenActions("Major")}
-        />
+        >
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-zinc-800"><AlertTriangle size={18} /></div>
+            <div className="flex-1">
+              <div className="text-zinc-400 text-xs">Open Major Actions</div>
+              <div className="text-zinc-100 text-xl font-semibold">{openMajor}</div>
+            </div>
+          </CardContent>
+        </Card>
 
-        <KPI title="On-time Close Rate" value="92%" />
+        <Card className="shadow-md">
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-zinc-800"><TrendingUp size={18} /></div>
+            <div className="flex-1">
+              <div className="text-zinc-400 text-xs">On-time Close Rate</div>
+              <div className="text-zinc-100 text-xl font-semibold">92%</div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
+      {/* Score trend */}
       <Card>
         <CardContent className="h-[260px]">
           <div className="text-zinc-300 text-sm mb-2">Audit Score Trend</div>
-          <div style={{ width: "100%", height: "100%" }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={lineData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                <XAxis dataKey="month" stroke="#888" />
-                <YAxis domain={[70, 100]} stroke="#888" />
-                <Tooltip contentStyle={{ background: "#111", border: "1px solid #333" }} />
-                <Line type="monotone" dataKey="score" stroke="#7dd3fc" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+          {lineData.length === 0 ? (
+            <div className="h-full flex items-center justify-center text-zinc-500 text-sm">
+              No audits yet — complete your first audit to see the trend.
+            </div>
+          ) : (
+            <div style={{ width: "100%", height: "100%" }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={lineData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                  <XAxis dataKey="month" stroke="#888" />
+                  <YAxis domain={[70, 100]} stroke="#888" />
+                  <Tooltip contentStyle={{ background: "#111", border: "1px solid #333" }} />
+                  <Line type="monotone" dataKey="score" stroke="#7dd3fc" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </CardContent>
       </Card>
+
+      {/* Ratings distribution + Last 6 audits */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card>
+          <CardContent className="h-[260px]">
+            <div className="text-zinc-300 text-sm mb-2">Ratings Distribution (last 3 audits)</div>
+            {ratingsData.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-zinc-500 text-sm">
+                No audits yet — complete an audit to see distribution.
+              </div>
+            ) : (
+              <div style={{ width: "100%", height: "100%" }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={ratingsData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                    <XAxis dataKey="month" stroke="#888" />
+                    <YAxis stroke="#888" />
+                    <Legend />
+                    <Tooltip contentStyle={{ background: "#111", border: "1px solid #333" }} />
+                    <Bar dataKey="Green" fill="#22c55e" />
+                    <Bar dataKey="Amber" fill="#f59e0b" />
+                    <Bar dataKey="Red" fill="#ef4444" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent>
+            <div className="text-zinc-300 text-sm mb-2">Last 6 Audits</div>
+            {history.length === 0 ? (
+              <div className="text-zinc-500 text-sm">Nothing here yet — Finalise an audit and it will appear.</div>
+            ) : (
+              <div className="space-y-2">
+                {history.slice(-6).map(a => (
+                  <div key={a.id} className="flex items-center justify-between rounded-xl bg-zinc-800/60 px-3 py-2">
+                    <div className="text-zinc-200 text-sm">{a.venue} • {a.month}</div>
+                    <ScoreBadge score={a.score} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
