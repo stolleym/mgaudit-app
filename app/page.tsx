@@ -26,6 +26,16 @@ function Screen({ children, routeKey }: { children: React.ReactNode; routeKey: s
     </div>
   );
 }
+type Checkpoint = {
+  category: string;
+  checkpoint: string;
+  target: string;
+  owner: string;
+  defaultDue: number;
+  suggested: string;
+  photo?: boolean; // optional
+};
+
 
 const VENUES = ["Suzie Q", "Windsor Wine Room"] as const;
 type Venue = typeof VENUES[number];
@@ -34,7 +44,7 @@ type Rating = "Pass" | "Minor" | "Major" | "Critical" | "N/A";
 const severityWeight: Record<Rating, number> = { Pass: 0, Minor: 1, Major: 3, Critical: 5, "N/A": 0 };
 const band = (score: number) => (score >= 90 ? "green" : score >= 75 ? "amber" : "red");
 
-const CHECKPOINTS = [
+const CHECKPOINTS: ReadonlyArray<Checkpoint> = [
   { category: "System Compliance", checkpoint: "Prep lists fully ticked?", target: "100%", owner: "Sous Chef", defaultDue: 3, suggested: "Audit daily prep sheets; retrain on completion standard; implement AM spot-check." },
   { category: "System Compliance", checkpoint: "SOPs followed on line?", target: "0 deviations", owner: "Head Chef", defaultDue: 3, suggested: "Run 2-dish line check; correct deviations; sign-off on shift brief." },
   { category: "Food Safety & Hygiene", checkpoint: "Allergen matrix current & on-hand", target: "Matches menu & labels", owner: "Duty Manager", defaultDue: 1, suggested: "Print current matrix; cross-check labels; brief FOH/BOH." },
