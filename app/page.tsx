@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import Image from "next/image";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,25 +8,58 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import {
-  CheckCircle2, AlertTriangle, XCircle, TrendingUp, Factory, History,
-  PlayCircle, FileDown, Upload, Download, Sparkles
+  CheckCircle2,
+  AlertTriangle,
+  XCircle,
+  TrendingUp,
+  Factory,
+  History,
+  PlayCircle,
+  FileDown,
+  Upload,
+  Download,
+  Sparkles,
 } from "lucide-react";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import jsPDF from "jspdf";
 
+// ---------- Tiny CSS transition wrapper ----------
+function Screen({ children, routeKey }: { children: React.ReactNode; routeKey: string }) {
+  return (
+    <div key={routeKey} className="animate-fadeinup">
+      <style>{`
+        @keyframes fadeinup { 0%{opacity:0; transform:translateY(12px)} 100%{opacity:1; transform:translateY(0)} }
+        .animate-fadeinup { animation: fadeinup .35s ease-out }
+      `}</style>
+      {children}
+    </div>
+  );
+}
+
 // ---------- Domain data & types ----------
 const VENUES = ["Suzie Q", "Windsor Wine Room"] as const;
-type Venue = typeof VENUES[number];
+const CATEGORIES = [
+  "System Compliance",
+  "Food Safety & Hygiene",
+  "Food Quality",
+  "Health & Safety",
+  "Council / Regulatory",
+  "KPIs",
+  "Guest / Staff Feedback",
+  "Maintenance",
+] as const;
+
+type Venue = (typeof VENUES)[number];
 type Rating = "Pass" | "Minor" | "Major" | "Critical" | "N/A";
 
 type Checkpoint = {
-  category: string;
+  category: (typeof CATEGORIES)[number] | string;
   checkpoint: string;
   target: string;
   owner: string;
   defaultDue: number;
   suggested: string;
-  photo?: boolean;
+  photo?: boolean; // optional flag requiring a photo
 };
 
 type AuditRow = {
@@ -35,7 +67,7 @@ type AuditRow = {
   checkpoint: string;
   rating: Rating;
   notes: string;
-  photoDataUrl: string;
+  photoDataUrl: string; // base64 image if provided
 };
 
 type Audit = {
@@ -46,7 +78,6 @@ type Audit = {
   rows: AuditRow[];
 };
 
-type ActionStatus = "Open" | "In Progress" | "Done";
 type ActionItem = {
   id: string;
   venue: Venue;
@@ -56,7 +87,7 @@ type ActionItem = {
   rating: Rating;
   owner: string;
   due: string; // YYYY-MM-DD
-  status: ActionStatus;
+  status: "Open" | "In Progress" | "Done";
   description: string;
 };
 
@@ -87,22 +118,13 @@ const CHECKPOINTS: ReadonlyArray<Checkpoint> = [
 const DRAFT_KEY = "auditDraft";
 const HISTORY_KEY = "auditHistory";
 const DC_KEY = "deepCleanTasks";
-
-const loadDraft = (): { venue: Venue; month: string; rows: AuditRow[] } | null => {
-  try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || "null"); } catch { return null; }
-};
+const loadDraft = () => { try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || "null"); } catch { return null; } };
 const saveDraft = (v: unknown) => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(v)); } catch {} };
 const clearDraft = () => { try { localStorage.removeItem(DRAFT_KEY); } catch {} };
-
-const getHistory = (): Audit[] => {
-  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); } catch { return []; }
-};
-const setHistory = (arr: Audit[]) => { try { localStorage.setItem(HISTORY_KEY, JSON.stringify(arr)); } catch {} };
-const pushHistory = (a: Audit) => { const h = getHistory(); h.push(a); setHistory(h); };
-
-const loadDC = (): DCItem[] => {
-  try { return JSON.parse(localStorage.getItem(DC_KEY) || "[]"); } catch { return []; }
-};
+const getHistory = () => { try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); } catch { return []; } };
+const setHistory = (arr: unknown[]) => { try { localStorage.setItem(HISTORY_KEY, JSON.stringify(arr)); } catch {} };
+const pushHistory = (a: unknown) => { const h = getHistory(); h.push(a); setHistory(h); };
+const loadDC = (): DCItem[] => { try { return JSON.parse(localStorage.getItem(DC_KEY) || "[]"); } catch { return []; } };
 const saveDC = (v: DCItem[]) => { try { localStorage.setItem(DC_KEY, JSON.stringify(v)); } catch {} };
 
 // ---------- Utilities ----------
@@ -113,13 +135,13 @@ function badgeClass(r: Rating) {
 const classField = () => "bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-400";
 
 // ---------- Mock chart data ----------
-const mockAudits = [
-  { id: 1, venue: "Suzie Q" as Venue, month: "2025-04", ratings: { green: 14, amber: 2, red: 1 }, score: 88 },
-  { id: 2, venue: "Suzie Q" as Venue, month: "2025-05", ratings: { green: 15, amber: 1, red: 1 }, score: 91 },
-  { id: 3, venue: "Suzie Q" as Venue, month: "2025-06", ratings: { green: 15, amber: 1, red: 1 }, score: 92 },
-  { id: 4, venue: "Windsor Wine Room" as Venue, month: "2025-04", ratings: { green: 13, amber: 3, red: 1 }, score: 85 },
-  { id: 5, venue: "Windsor Wine Room" as Venue, month: "2025-05", ratings: { green: 14, amber: 2, red: 1 }, score: 88 },
-  { id: 6, venue: "Windsor Wine Room" as Venue, month: "2025-06", ratings: { green: 15, amber: 1, red: 1 }, score: 90 },
+const mockAudits: { id: number; venue: Venue; month: string; ratings: { green: number; amber: number; red: number }; score: number }[] = [
+  { id: 1, venue: "Suzie Q", month: "2025-04", ratings: { green: 14, amber: 2, red: 1 }, score: 88 },
+  { id: 2, venue: "Suzie Q", month: "2025-05", ratings: { green: 15, amber: 1, red: 1 }, score: 91 },
+  { id: 3, venue: "Suzie Q", month: "2025-06", ratings: { green: 15, amber: 1, red: 1 }, score: 92 },
+  { id: 4, venue: "Windsor Wine Room", month: "2025-04", ratings: { green: 13, amber: 3, red: 1 }, score: 85 },
+  { id: 5, venue: "Windsor Wine Room", month: "2025-05", ratings: { green: 14, amber: 2, red: 1 }, score: 88 },
+  { id: 6, venue: "Windsor Wine Room", month: "2025-06", ratings: { green: 15, amber: 1, red: 1 }, score: 90 },
 ];
 
 // ---------- UI bits ----------
@@ -142,7 +164,7 @@ function KPI({ title, value, icon }: { title: string; value: React.ReactNode; ic
 }
 
 function Dashboard({ venue, onStartNew, onHistory, onDeep }: { venue: Venue | "All"; onStartNew: () => void; onHistory: () => void; onDeep: () => void }) {
-  const data = useMemo(() => mockAudits.filter(a => venue === "All" ? true : a.venue === venue), [venue]);
+  const data = useMemo(() => mockAudits.filter(a => (venue === "All" ? true : a.venue === venue)), [venue]);
   const latest = data[data.length - 1];
   const openCritical = 1; const openMajor = 3;
   const lineData = data.map(d => ({ month: d.month, score: d.score }));
@@ -156,40 +178,42 @@ function Dashboard({ venue, onStartNew, onHistory, onDeep }: { venue: Venue | "A
           <Button variant="secondary" className="rounded-xl" onClick={onDeep}><Sparkles size={16} className="mr-2"/>Deep Clean</Button>
         </div>
       </div>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <KPI title="Latest Audit Score" value={<ScoreBadge score={latest?.score ?? 0} />} />
+        <KPI title="Open Critical Actions" value={<div className="flex items-center gap-2"><XCircle size={16} />{openCritical}</div>} />
+        <KPI title="Open Major Actions" value={<div className="flex items-center gap-2"><AlertTriangle size={16} />{openMajor}</div>} />
+        <KPI title="On-time Close Rate" value="92%" />
+      </div>
       <Card className="rounded-2xl bg-zinc-900 border-zinc-800">
         <CardContent className="p-4 h-[260px]">
           <div className="text-zinc-300 text-sm mb-2">Audit Score Trend</div>
-          <div style={{width:'100%',height:'100%'}}>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={lineData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                <XAxis dataKey="month" stroke="#888" />
-                <YAxis domain={[70, 100]} stroke="#888" />
-                <Tooltip contentStyle={{ background: "#111", border: "1px solid #333" }} />
-                <Line type="monotone" dataKey="score" stroke="#7dd3fc" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={lineData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+              <XAxis dataKey="month" stroke="#888" />
+              <YAxis domain={[70, 100]} stroke="#888" />
+              <Tooltip contentStyle={{ background: "#111", border: "1px solid #333" }} />
+              <Line type="monotone" dataKey="score" stroke="#7dd3fc" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
         </CardContent>
       </Card>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card className="rounded-2xl bg-zinc-900 border-zinc-800">
           <CardContent className="p-4 h-[260px]">
             <div className="text-zinc-300 text-sm mb-2">Ratings Distribution (last 3 months)</div>
-            <div style={{width:'100%',height:'100%'}}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={data.map(d => ({ month: d.month, Green: d.ratings.green, Amber: d.ratings.amber, Red: d.ratings.red }))}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                  <XAxis dataKey="month" stroke="#888" />
-                  <YAxis stroke="#888" />
-                  <Legend />
-                  <Tooltip contentStyle={{ background: "#111", border: "1px solid #333" }} />
-                  <Bar dataKey="Green" fill="#22c55e" />
-                  <Bar dataKey="Amber" fill="#f59e0b" />
-                  <Bar dataKey="Red" fill="#ef4444" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={data.map(d => ({ month: d.month, Green: d.ratings.green, Amber: d.ratings.amber, Red: d.ratings.red }))}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                <XAxis dataKey="month" stroke="#888" />
+                <YAxis stroke="#888" />
+                <Legend />
+                <Tooltip contentStyle={{ background: "#111", border: "1px solid #333" }} />
+                <Bar dataKey="Green" fill="#22c55e" />
+                <Bar dataKey="Amber" fill="#f59e0b" />
+                <Bar dataKey="Red" fill="#ef4444" />
+              </BarChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
         <Card className="rounded-2xl bg-zinc-900 border-zinc-800">
@@ -211,16 +235,22 @@ function Dashboard({ venue, onStartNew, onHistory, onDeep }: { venue: Venue | "A
 }
 
 // ---------- Full Audit ----------
-function FullAudit({ onFinalise, onCancel }: { onFinalise: (actions: ActionItem[], audit: Audit, pdfUrl: string) => void; onCancel: () => void }) {
+function FullAudit({
+  onFinalise,
+  onCancel,
+}: {
+  onFinalise: (actions: ActionItem[], audit: Audit, pdfUrl: string | URL) => void;
+  onCancel: () => void;
+}) {
   const draft = loadDraft();
-  const [venue, setVenue] = useState<Venue>(draft?.venue || "Suzie Q");
-  const [month, setMonth] = useState<string>(draft?.month || new Date().toISOString().slice(0,7));
+  const [venue, setVenue] = useState<Venue>((draft?.venue as Venue) || "Suzie Q");
+  const [month, setMonth] = useState<string>((draft?.month as string) || new Date().toISOString().slice(0, 7));
   const initial: AuditRow[] =
     (draft?.rows as AuditRow[] | undefined) ||
     CHECKPOINTS.map((cp) => ({
       category: cp.category,
       checkpoint: cp.checkpoint,
-      rating: "Pass",
+      rating: "Pass" as Rating,
       notes: "",
       photoDataUrl: "",
     }));
@@ -230,13 +260,13 @@ function FullAudit({ onFinalise, onCancel }: { onFinalise: (actions: ActionItem[
   const inputFileRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const requirePhoto = (checkpoint: string, rating: Rating) => {
-    const meta = CHECKPOINTS.find(c => c.checkpoint === checkpoint);
+    const meta = CHECKPOINTS.find((c) => c.checkpoint === checkpoint);
     if (meta?.photo) return true;
     if (rating !== "Pass" && rating !== "N/A") return true;
     return false;
   };
 
-  const grouped = useMemo<[string, AuditRow[]][]>(() => {
+  const grouped = useMemo(() => {
     const m = new Map<string, AuditRow[]>();
     rows.forEach((r: AuditRow) => {
       if (!m.has(r.category)) m.set(r.category, []);
@@ -245,7 +275,7 @@ function FullAudit({ onFinalise, onCancel }: { onFinalise: (actions: ActionItem[
     return Array.from(m.entries());
   }, [rows]);
 
-  const sectionProgress = useMemo((): { cat: string; total: number; done: number }[] => {
+  const sectionProgress = useMemo(() => {
     return grouped.map(([cat, items]) => {
       const total = items.length;
       const done = items.filter((row) => {
@@ -257,7 +287,7 @@ function FullAudit({ onFinalise, onCancel }: { onFinalise: (actions: ActionItem[
     });
   }, [grouped]);
 
-  const allComplete = sectionProgress.every(s => s.done === s.total);
+  const allComplete = sectionProgress.every((s) => s.done === s.total);
 
   const setRow = (index: number, patch: Partial<AuditRow>) =>
     setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
@@ -269,39 +299,58 @@ function FullAudit({ onFinalise, onCancel }: { onFinalise: (actions: ActionItem[
   };
 
   const validatePhotos = () => {
-    for (const r of rows) { if (requirePhoto(r.checkpoint, r.rating) && !r.photoDataUrl) return r.checkpoint; }
+    for (const r of rows) {
+      if (requirePhoto(r.checkpoint, r.rating) && !r.photoDataUrl) return r.checkpoint;
+    }
     return null;
   };
 
   const buildPDF = (audit: Audit, actions: ActionItem[], embedPhotos = true) => {
     const doc = new jsPDF();
-    doc.setFontSize(16); doc.text("Monthly Audit Report", 10, 10);
+    doc.setFontSize(16);
+    doc.text("Monthly Audit Report", 10, 10);
     doc.setFontSize(12);
     doc.text(`Venue: ${audit.venue}`, 10, 20);
     doc.text(`Month: ${audit.month}`, 10, 26);
     doc.text(`Score: ${audit.score}%`, 10, 32);
     let y = 42;
     audit.rows.forEach((r, i) => {
-      doc.text(`${i + 1}. [${r.category}] ${r.checkpoint} - ${r.rating}`, 10, y); y += 6;
-      if (r.notes) { doc.text(`Notes: ${r.notes}`, 14, y); y += 6; }
+      doc.text(`${i + 1}. [${r.category}] ${r.checkpoint} - ${r.rating}`, 10, y);
+      y += 6;
+      if (r.notes) {
+        doc.text(`Notes: ${r.notes}`, 14, y);
+        y += 6;
+      }
       if (embedPhotos && r.photoDataUrl) {
-        try { doc.addImage(r.photoDataUrl, 'JPEG', 14, y, 40, 30); y += 34; } catch {}
+        try {
+          doc.addImage(r.photoDataUrl, "JPEG", 14, y, 40, 30);
+          y += 34;
+        } catch {}
       }
     });
-    y += 4; doc.text(`Action Plan:`, 10, y); y += 6;
-    actions.forEach((a, i) => { doc.text(`${i + 1}. ${a.checkpoint} - ${a.rating} - Owner: ${a.owner} Due: ${a.due}`, 10, y); y += 6; });
+    y += 4;
+    doc.text(`Action Plan:`, 10, y);
+    y += 6;
+    actions.forEach((a, i) => {
+      doc.text(`${i + 1}. ${a.checkpoint} - ${a.rating} - Owner: ${a.owner} Due: ${a.due}`, 10, y);
+      y += 6;
+    });
     return doc;
   };
 
   const finalise = () => {
     const missing = validatePhotos();
-    if (missing) { alert(`Photo required for: ${missing}`); return; }
-    let score = 100; const actions: ActionItem[] = [];
+    if (missing) {
+      alert(`Photo required for: ${missing}`);
+      return;
+    }
+    let score = 100;
+    const actions: ActionItem[] = [];
     rows.forEach((r) => {
       const sev = severityWeight[r.rating];
       score = Math.max(0, score - sev * 5);
       if (r.rating !== "Pass" && r.rating !== "N/A") {
-        const meta = CHECKPOINTS.find(c => c.checkpoint === r.checkpoint);
+        const meta = CHECKPOINTS.find((c) => c.checkpoint === r.checkpoint);
         actions.push({
           id: Math.random().toString(36).slice(2),
           venue,
@@ -309,22 +358,26 @@ function FullAudit({ onFinalise, onCancel }: { onFinalise: (actions: ActionItem[
           category: r.category,
           checkpoint: r.checkpoint,
           rating: r.rating,
-          owner: meta?.owner ?? "Head Chef",
-          due: daysFromNow((meta?.defaultDue ?? 3) - (sev >= 3 ? 2 : 0)),
+          owner: (meta?.owner as string) ?? "Head Chef",
+          due: daysFromNow((meta?.defaultDue ?? 3) - (severityWeight[r.rating] >= 3 ? 2 : 0)),
           status: "Open",
           description: `${meta?.suggested ?? "Correct and retrain."} ${r.notes ? `Notes: ${r.notes}` : ""}`.trim(),
         });
       }
     });
+
     const audit: Audit = { id: Math.random().toString(36).slice(2), venue, month, score, rows };
-
     const doc = buildPDF(audit, actions, true);
-    const pdfUrl = doc.output("bloburl");
 
+    // jsPDF may return a URL object for "bloburl"; normalize
+    const out = doc.output("bloburl") as string | URL;
+    const pdfHref = typeof out === "string" ? out : out.toString();
+
+    // Clear inputs, persist, bubble up
     Object.values(inputFileRefs.current).forEach((el) => { if (el) el.value = ""; });
-
-    clearDraft(); pushHistory(audit);
-    onFinalise(actions, audit, pdfUrl);
+    clearDraft();
+    pushHistory(audit);
+    onFinalise(actions, audit, pdfHref);
   };
 
   return (
@@ -334,13 +387,13 @@ function FullAudit({ onFinalise, onCancel }: { onFinalise: (actions: ActionItem[
         <Card className="bg-zinc-900 border-zinc-800 rounded-2xl sticky top-4">
           <CardContent className="p-4 space-y-2">
             <div className="text-zinc-300 text-sm mb-1">Progress</div>
-            {sectionProgress.map(s => (
+            {sectionProgress.map((s) => (
               <div key={s.cat} className="flex items-center justify-between text-sm">
                 <span className="text-zinc-200">{s.cat}</span>
-                <span className={`px-2 py-0.5 rounded-full text-xs ${s.done===s.total? 'bg-green-600/20 text-green-400':'bg-zinc-700 text-zinc-300'}`}>{s.done}/{s.total}</span>
+                <span className={`px-2 py-0.5 rounded-full text-xs ${s.done === s.total ? "bg-green-600/20 text-green-400" : "bg-zinc-700 text-zinc-300"}`}>{s.done}/{s.total}</span>
               </div>
             ))}
-            <div className="pt-2 text-xs text-zinc-400">{allComplete ? 'All sections complete.' : 'Some sections still need photos.'}</div>
+            <div className="pt-2 text-xs text-zinc-400">{allComplete ? "All sections complete." : "Some sections still need photos."}</div>
           </CardContent>
         </Card>
       </aside>
@@ -353,18 +406,20 @@ function FullAudit({ onFinalise, onCancel }: { onFinalise: (actions: ActionItem[
             <Select value={venue} onValueChange={(v) => setVenue(v as Venue)}>
               <SelectTrigger className={`rounded-xl ${classField()}`}><SelectValue placeholder="Select venue" /></SelectTrigger>
               <SelectContent className="bg-zinc-900 text-zinc-100 border-zinc-800">
-                {VENUES.map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                {VENUES.map((v) => (
+                  <SelectItem key={v} value={v}>{v}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
           <div>
             <Label className="text-zinc-300">Audit Month (YYYY-MM)</Label>
-            <Input value={month} onChange={e => setMonth(e.target.value)} className={`rounded-xl ${classField()}`} placeholder="2025-07" />
+            <Input value={month} onChange={(e) => setMonth(e.target.value)} className={`rounded-xl ${classField()}`} placeholder="2025-07" />
           </div>
         </div>
 
         <div className="space-y-3">
-          {grouped.map(([cat, items]) => (
+          {Array.from(grouped).map(([cat, items]) => (
             <Card key={cat} className="bg-zinc-900 border-zinc-800 rounded-2xl">
               <CardContent className="p-0">
                 <details className="group" open>
@@ -373,21 +428,23 @@ function FullAudit({ onFinalise, onCancel }: { onFinalise: (actions: ActionItem[
                     <span className="text-zinc-400 text-xs">{items.length} checks</span>
                   </summary>
                   <div className="p-4 grid gap-3">
-                    {items.map((row) => {
-                      const index = rows.findIndex(r => r.checkpoint === row.checkpoint);
+                    {items.map((row, idx) => {
+                      const index = rows.findIndex((r) => r.checkpoint === row.checkpoint);
                       return (
                         <div key={row.checkpoint} className="grid md:grid-cols-5 gap-3 bg-zinc-900">
                           <div className="col-span-2">
                             <Label className="text-zinc-300">Checkpoint</Label>
                             <div className="text-zinc-100 text-sm">{row.checkpoint}</div>
-                            <div className="text-zinc-500 text-xs">Target: {CHECKPOINTS.find(c=>c.checkpoint===row.checkpoint)?.target}</div>
+                            <div className="text-zinc-500 text-xs">Target: {CHECKPOINTS.find((c) => c.checkpoint === row.checkpoint)?.target}</div>
                           </div>
                           <div>
                             <Label className="text-zinc-300">Rating</Label>
                             <Select value={rows[index].rating} onValueChange={(v) => setRow(index, { rating: v as Rating })}>
                               <SelectTrigger className={`rounded-xl ${classField()}`}><SelectValue placeholder="Select rating" /></SelectTrigger>
                               <SelectContent className="bg-zinc-900 text-zinc-100 border-zinc-800">
-                                {["Pass","Minor","Major","Critical","N/A"].map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                                {["Pass", "Minor", "Major", "Critical", "N/A"].map((r) => (
+                                  <SelectItem key={r} value={r}>{r}</SelectItem>
+                                ))}
                               </SelectContent>
                             </Select>
                           </div>
@@ -403,7 +460,7 @@ function FullAudit({ onFinalise, onCancel }: { onFinalise: (actions: ActionItem[
                                 <Input
                                   type="file"
                                   accept="image/*"
-                                  ref={el => (inputFileRefs.current[row.checkpoint] = el)}
+                                  ref={(el) => (inputFileRefs.current[row.checkpoint] = el)}
                                   onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0], index)}
                                   className={`rounded-xl ${classField()}`}
                                 />
@@ -435,9 +492,12 @@ function ActionsTable({ actions, update }: { actions: ActionItem[]; update: (id:
   return (
     <div className="space-y-2">
       {actions.length === 0 && <div className="text-zinc-400 text-sm">No open actions. Nice.</div>}
-      {actions.map(a => (
+      {actions.map((a) => (
         <div key={a.id} className="grid grid-cols-12 items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-xl p-3">
-          <div className="col-span-3 text-zinc-200 text-sm">{a.venue} • {a.category}<div className="text-zinc-400 text-xs">{a.checkpoint}</div></div>
+          <div className="col-span-3 text-zinc-200 text-sm">
+            {a.venue} • {a.category}
+            <div className="text-zinc-400 text-xs">{a.checkpoint}</div>
+          </div>
           <div className="col-span-2"><Badge className={badgeClass(a.rating)}>{a.rating}</Badge></div>
           <div className="col-span-3 text-zinc-300 text-xs">{a.description}</div>
           <div className="col-span-2 text-zinc-300 text-xs">Owner: {a.owner} • Due {a.due}</div>
@@ -455,27 +515,41 @@ function ActionsTable({ actions, update }: { actions: ActionItem[]; update: (id:
 function AuditHistory() {
   const [items, setItems] = useState<Audit[]>(getHistory());
   const exportJSON = () => {
-    const blob = new Blob([JSON.stringify(items, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify(items, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = 'auditHistory.json'; a.click(); URL.revokeObjectURL(url);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "auditHistory.json";
+    a.click();
+    URL.revokeObjectURL(url);
   };
   const importJSON = async () => {
-    const input = document.createElement('input'); input.type = 'file'; input.accept = 'application/json';
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "application/json";
     input.onchange = () => {
-      const f = input.files?.[0]; if (!f) return;
+      const f = input.files?.[0];
+      if (!f) return;
       const r = new FileReader();
-      r.onload = () => { try {
-        const arr = JSON.parse(String(r.result)) as Audit[];
-        if (Array.isArray(arr)) { setHistory(arr); setItems(arr); }
-      } catch {} };
+      r.onload = () => {
+        try {
+          const arr = JSON.parse(String(r.result));
+          if (Array.isArray(arr)) {
+            setHistory(arr);
+            setItems(arr);
+          }
+        } catch {}
+      };
       r.readAsText(f);
     };
     input.click();
   };
   const exportPDF = (audit: Audit) => {
     const doc = new jsPDF();
-    doc.setFontSize(16); doc.text("Audit Report", 10, 10);
-    doc.setFontSize(12); doc.text(`Venue: ${audit.venue}`, 10, 20);
+    doc.setFontSize(16);
+    doc.text("Audit Report", 10, 10);
+    doc.setFontSize(12);
+    doc.text(`Venue: ${audit.venue}`, 10, 20);
     doc.text(`Month: ${audit.month}`, 10, 26);
     doc.text(`Score: ${audit.score}%`, 10, 32);
     doc.save(`audit_${audit.venue}_${audit.month}.pdf`);
@@ -487,7 +561,7 @@ function AuditHistory() {
         <Button size="sm" variant="secondary" className="rounded-xl" onClick={importJSON}><Upload size={14} className="mr-1"/>Import JSON</Button>
       </div>
       {items.length === 0 && <div className="text-zinc-400 text-sm">No history yet. Finalise an audit to see it here.</div>}
-      {items.map(a => (
+      {items.map((a) => (
         <div key={a.id} className="flex items-center justify-between rounded-xl bg-zinc-900 border border-zinc-800 p-3">
           <div className="text-zinc-100 text-sm">{a.venue} • {a.month}</div>
           <div className="flex items-center gap-2">
@@ -504,28 +578,29 @@ function AuditHistory() {
 type DCItem = { id: string; title: string; due: string; done: boolean };
 function DeepCleanSchedule() {
   const [items, setItems] = useState<DCItem[]>(loadDC());
-  const [title, setTitle] = useState<string>("");
-  const [due, setDue] = useState<string>(new Date().toISOString().slice(0,10));
+  const [title, setTitle] = useState("");
+  const [due, setDue] = useState(new Date().toISOString().slice(0, 10));
   useEffect(() => { saveDC(items); }, [items]);
 
-  const add = () => { if (!title || !due) return;
-    setItems(prev => [...prev, { id: Math.random().toString(36).slice(2), title, due, done: false }]);
+  const add = () => {
+    if (!title || !due) return;
+    setItems((prev) => [...prev, { id: Math.random().toString(36).slice(2), title, due, done: false }]);
     setTitle("");
   };
-  const toggle = (id: string) => setItems(prev => prev.map(i => i.id === id ? { ...i, done: !i.done } : i));
-  const remove = (id: string) => setItems(prev => prev.filter(i => i.id !== id));
-  const today = new Date().toISOString().slice(0,10);
+  const toggle = (id: string) => setItems((prev) => prev.map((i) => (i.id === id ? { ...i, done: !i.done } : i)));
+  const remove = (id: string) => setItems((prev) => prev.filter((i) => i.id !== id));
+  const today = new Date().toISOString().slice(0, 10);
 
   return (
     <div className="space-y-4">
       <div className="grid md:grid-cols-3 gap-3">
         <div>
           <Label className="text-zinc-300">Task</Label>
-          <Input value={title} onChange={(e)=>setTitle(e.target.value)} className={`rounded-xl ${classField()}`} placeholder="e.g., Deep clean grill & hood" />
+          <Input value={title} onChange={(e) => setTitle(e.target.value)} className={`rounded-xl ${classField()}`} placeholder="e.g., Deep clean grill & hood" />
         </div>
         <div>
           <Label className="text-zinc-300">Due date</Label>
-          <Input type="date" value={due} onChange={(e)=>setDue(e.target.value)} className={`rounded-xl ${classField()}`} />
+          <Input type="date" value={due} onChange={(e) => setDue(e.target.value)} className={`rounded-xl ${classField()}`} />
         </div>
         <div className="flex items-end">
           <Button className="rounded-xl w-full" onClick={add}><Sparkles size={16} className="mr-2"/>Add Task</Button>
@@ -534,7 +609,7 @@ function DeepCleanSchedule() {
 
       <div className="space-y-2">
         {items.length === 0 && <div className="text-zinc-400 text-sm">No deep cleans scheduled. Add your first task.</div>}
-        {items.map(item => {
+        {items.map((item) => {
           const overdue = !item.done && item.due < today;
           return (
             <div key={item.id} className={`flex items-center justify-between rounded-xl border p-3 ${overdue ? "border-red-500/40 bg-red-950/20" : "border-zinc-800 bg-zinc-900"}`}>
@@ -543,8 +618,8 @@ function DeepCleanSchedule() {
                 <div className={`text-xs ${overdue ? "text-red-400" : "text-zinc-400"}`}>Due {item.due}{overdue ? " • Overdue" : ""}</div>
               </div>
               <div className="flex gap-2">
-                <Button variant="secondary" className="rounded-xl" onClick={()=>toggle(item.id)}>{item.done ? "Undo" : "Mark Done"}</Button>
-                <Button className="rounded-xl" onClick={()=>remove(item.id)}>Remove</Button>
+                <Button variant="secondary" className="rounded-xl" onClick={() => toggle(item.id)}>{item.done ? "Undo" : "Mark Done"}</Button>
+                <Button className="rounded-xl" onClick={() => remove(item.id)}>Remove</Button>
               </div>
             </div>
           );
@@ -570,7 +645,7 @@ function useSelfTests() {
   }, []);
 }
 
-// ---------- Root App ----------
+// ---------- Root Page ----------
 export default function Page() {
   useSelfTests();
   type Route = "splash" | "dashboard" | "full" | "actions" | "history" | "deepclean" | "complete";
@@ -584,23 +659,23 @@ export default function Page() {
   // Splash → Dashboard after 2.5s
   useEffect(() => {
     if (route !== "splash") return;
-    const t = setTimeout(()=>setRoute("dashboard"), 2500);
-    return ()=>clearTimeout(t);
+    const t = setTimeout(() => setRoute("dashboard"), 2500);
+    return () => clearTimeout(t);
   }, [route]);
 
   const updateAction = (id: string, patch: Partial<ActionItem>) =>
-    setActions(a => a.map(x => x.id === id ? { ...x, ...patch } : x));
+    setActions((a) => a.map((x) => (x.id === id ? { ...x, ...patch } : x)));
 
-  const onFinalise = (newActions: ActionItem[], _audit: Audit, pdfUrlFromAudit: string) => {
-    setActions(a => [...newActions, ...a]);
-    setPdfUrl(pdfUrlFromAudit);
+  const onFinalise = (newActions: ActionItem[], audit: Audit, pdfUrlFromAudit: string | URL) => {
+    setActions((a) => [...newActions, ...a]);
+    setPdfUrl(typeof pdfUrlFromAudit === "string" ? pdfUrlFromAudit : pdfUrlFromAudit.toString());
     setRoute("complete");
   };
 
   const Header = (
-    <header className="flex items-center justify-between">
+    <header className="flex items-center justify-between p-4 md:p-0">
       <div className="flex items-center gap-3">
-        <div className="p-2 rounded-2xl bg-zinc-900 border-zinc-800"><Factory size={18}/></div>
+        <div className="p-2 rounded-2xl bg-zinc-900 border border-zinc-800"><Factory size={18} /></div>
         <h1 className="text-2xl font-semibold">Monthly Audit – Suzie Q & Windsor Wine Room</h1>
       </div>
       <div className="flex items-center gap-2">
@@ -611,7 +686,9 @@ export default function Page() {
               <SelectTrigger className={`rounded-xl w-[200px] bg-zinc-900 border-zinc-800 text-zinc-100`}><SelectValue placeholder="All Venues"/></SelectTrigger>
               <SelectContent className="bg-zinc-900 text-zinc-100 border-zinc-800">
                 <SelectItem value="All">All Venues</SelectItem>
-                {VENUES.map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                {VENUES.map((v) => (
+                  <SelectItem key={v} value={v}>{v}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </>
@@ -625,10 +702,11 @@ export default function Page() {
       <div className="max-w-6xl mx-auto space-y-6">
         {route !== "splash" && Header}
 
-        <div className="animate-fadeinup">
+        <Screen routeKey={route}>
           {route === "splash" && (
             <div className="flex items-center justify-center h-[80vh]">
-              <Image src="/mamas-logo.png" alt="Mamas Dining Group" width={260} height={260} className="opacity-95" priority />
+              {/* Place /public/mamas-logo.png in your project */}
+              <img src="/mamas-logo.png" alt="Mamas Dining Group" className="w-[260px] h-auto opacity-95" />
             </div>
           )}
 
@@ -643,6 +721,16 @@ export default function Page() {
 
           {route === "full" && (
             <FullAudit onFinalise={onFinalise} onCancel={() => setRoute("dashboard")} />
+          )}
+
+          {route === "actions" && (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <div className="text-zinc-300 text-sm">Open actions created from your audits.</div>
+                <Button variant="secondary" className="rounded-xl" onClick={() => setRoute("dashboard")}>Back to Dashboard</Button>
+              </div>
+              <ActionsTable actions={actions.filter((a) => (venue === "All" ? true : a.venue === venue))} update={updateAction} />
+            </div>
           )}
 
           {route === "history" && (
@@ -670,14 +758,16 @@ export default function Page() {
               <div className="text-3xl font-semibold mb-2">Audit Completed</div>
               <div className="text-zinc-400 mb-6">Nice work. Your PDF is ready.</div>
               <div className="flex gap-3">
-                <a href={pdfUrl} target="_blank" rel="noopener noreferrer">
+                <a href={String(pdfUrl)} target="_blank" rel="noopener noreferrer">
                   <Button className="rounded-xl"><FileDown size={16} className="mr-2"/>View PDF</Button>
                 </a>
-                <Button variant="secondary" className="rounded-xl" onClick={()=>setRoute("dashboard")}>Return to Dashboard</Button>
+                <Button variant="secondary" className="rounded-xl" onClick={() => setRoute("dashboard")}>
+                  Return to Dashboard
+                </Button>
               </div>
             </div>
           )}
-        </div>
+        </Screen>
 
         {route !== "splash" && <footer className="text-xs text-zinc-500 pt-6">Drafts save locally until Finalised. Scoring: ≥90 Green, 75-89 Amber, &lt;75 Red.</footer>}
       </div>
